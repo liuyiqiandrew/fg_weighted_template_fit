@@ -1,1 +1,209 @@
 # fg_weighted_template_fit
+
+Weighted foreground template fitting for Healpix Q/U maps.
+
+This repository provides a lightweight alternative to a full inverse-covariance
+pipeline when the fitting problem is already expressed through a user-supplied
+weight map. The core workflow is:
+
+1. Smooth target and template-construction maps to a common beam.
+2. Optionally apply harmonic filtering in `ell` and `m`.
+3. Build foreground templates from map differences such as `353 - 217`.
+4. Estimate template amplitudes with a weighted normal equation.
+5. Bootstrap amplitude uncertainty with Monte Carlo noise realizations built
+   from per-pixel `QQ`, `UU`, and `QU` covariances.
+
+The main package is [`fg_weighted_template_fit/`](./fg_weighted_template_fit).
+
+## Method
+
+For a target polarization map `m` and a stack of templates `T`, the fitted
+amplitudes are
+
+```text
+a_hat = (T^T W T)^(-1) T^T W m
+```
+
+where:
+
+- `m` is the target map with Q and U pixels stacked into one data vector
+- `T` is the matrix of stacked template maps
+- `W` is a diagonal weight map supplied by the user
+
+This is not the fully optimal generalized least-squares estimator you would get
+from a full inverse covariance matrix, but it is often a useful fast estimator
+when a scalar or diagonal weight definition is already available and you want a
+swift amplitude estimate.
+
+## Repository Layout
+
+```text
+fg_weighted_template_fit/
+├── README.md
+├── docs/
+│   └── api.md
+├── fg_weighted_template_fit/
+│   ├── __init__.py
+│   ├── _arrays.py
+│   ├── _filters.py
+│   ├── _fit.py
+│   ├── _noise.py
+│   └── _types.py
+└── tests/
+    └── test_fg_weighted_template_fit.py
+```
+
+Module responsibilities:
+
+- `_types.py`: dataclasses for filters, template definitions, and fit results
+- `_filters.py`: Healpix smoothing, `ell`/`m` filtering, and template building
+- `_fit.py`: weighted template solving
+- `_noise.py`: Q/U noise realizations and Monte Carlo uncertainty estimation
+- `_arrays.py`: array-shape normalization helpers
+
+## Main Features
+
+- Difference-template construction for split maps such as dust or synchrotron
+- Common-beam matching from input `fwhm_in` to output `fwhm_out`
+- Optional harmonic filtering in both `ell` and `m`
+- Smooth `ell` and `m` cutoffs with `C1` or `C2` apodized edges
+- Weighted diagonal GLS-like solve for template amplitudes
+- Bootstrap uncertainty estimation from per-pixel `QQ`, `UU`, `QU` covariance
+- Storage of the recovered amplitude from every Monte Carlo realization
+
+## Key Assumptions
+
+- Maps are Healpix Q/U polarization maps.
+- Beam widths are given in radians.
+- Template maps are built as a difference of two Q/U maps after smoothing to a
+  common resolution.
+- Noise covariance is provided per pixel in the order `QQ`, `UU`, `QU`.
+- The fit weight is diagonal in pixel space. This package does not implement a
+  dense inverse covariance solve.
+
+## Dependencies
+
+- `numpy`
+- `healpy` for smoothing and harmonic filtering
+- `pytest` for the test suite
+
+The purely algebraic fitting functions can still be imported without `healpy`,
+but smoothing and harmonic filtering require it.
+
+## Quick Start
+
+```python
+import numpy as np
+import fg_weighted_template_fit as ftf
+
+# Example target map and diagonal weights.
+target_qu = np.random.standard_normal((2, 12 * 8**2))
+weight_map = np.ones(target_qu.shape[1])
+
+dust_input = ftf.DifferenceTemplateInput(
+    map_a_qu=planck_353_qu,
+    map_b_qu=planck_217_qu,
+    fwhm_in_a=fwhm_353_rad,
+    fwhm_in_b=fwhm_217_rad,
+    name="dust",
+)
+
+sync_input = ftf.DifferenceTemplateInput(
+    map_a_qu=wm23_qu,
+    map_b_qu=ka23_qu,
+    fwhm_in_a=fwhm_w_rad,
+    fwhm_in_b=fwhm_ka_rad,
+    name="sync",
+)
+
+filter_config = ftf.HarmonicFilter(
+    ell_cutoff=180.0,
+    ell_halfwidth=20.0,
+    m_cutoff=64.0,
+    m_halfwidth=8.0,
+    transition_type="C2",
+)
+
+result = ftf.fit_foreground_templates(
+    target_qu=target_qu,
+    target_fwhm_in=target_fwhm_rad,
+    template_inputs=[dust_input, sync_input],
+    weight_map=weight_map,
+    fwhm_out=common_fwhm_rad,
+    target_filter=filter_config,
+)
+
+print(result.template_names)
+print(result.amplitudes)
+```
+
+## Monte Carlo Uncertainty Example
+
+```python
+bootstrap = ftf.bootstrap_template_amplitudes(
+    target_qu=target_qu,
+    target_noise_cov=target_noise_cov,
+    target_fwhm_in=target_fwhm_rad,
+    template_inputs=[dust_input, sync_input],
+    weight_map=weight_map,
+    fwhm_out=common_fwhm_rad,
+    n_mc=200,
+    target_filter=filter_config,
+    rng=1234,
+)
+
+print(bootstrap.amplitude_mean)
+print(bootstrap.amplitude_std)
+print(bootstrap.amplitude_samples.shape)
+```
+
+## Filtering Options
+
+`HarmonicFilter` supports two styles of harmonic filtering:
+
+- Explicit transfer arrays via `ell_filter` and `m_filter`
+- Smooth low-pass cutoffs via `ell_cutoff`, `ell_halfwidth`, `m_cutoff`,
+  `m_halfwidth`, and `transition_type`
+
+For cutoff-based filters:
+
+- modes below `cutoff - halfwidth` pass unchanged
+- modes above `cutoff + halfwidth` are set to zero
+- the transition band uses a NaMaster-style `C1` or `C2` edge
+- the default transition type is `C2`
+
+## Public API
+
+Most users will interact with:
+
+- `HarmonicFilter`
+- `DifferenceTemplateInput`
+- `fit_foreground_templates`
+- `bootstrap_template_amplitudes`
+- `construct_difference_template`
+- `smooth_and_filter_qu_map`
+
+A more detailed API reference is available in [`docs/api.md`](./docs/api.md).
+
+## Testing
+
+Run the tests from the repository root:
+
+```bash
+python -m pytest -q
+```
+
+The current test suite covers:
+
+- recovery of known template amplitudes
+- Q/U noise realization from requested covariance
+- Monte Carlo sample storage and nonzero uncertainty
+- smoothing and `m`-filter integration
+- `C1` and `C2` taper behavior for smooth cutoffs
+
+## Notes
+
+- Importing `healpy` may trigger local Matplotlib cache warnings in restricted
+  environments. Those do not affect the numerical routines.
+- The repository currently focuses on the fitting utilities themselves rather
+  than file I/O. You are expected to load maps and noise covariances upstream.
