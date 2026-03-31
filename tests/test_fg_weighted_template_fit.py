@@ -35,6 +35,51 @@ def test_weighted_template_gls_recovers_known_amplitudes() -> None:
     assert result.template_names == ("dust", "sync")
 
 
+def test_weighted_template_gls_supports_cross_normal_matrix() -> None:
+    npix = 6
+    dust_lhs = np.array(
+        [
+            [1.0, 0.3, -0.2, 0.6, 0.1, -0.4],
+            [0.4, -0.2, 0.5, 0.1, -0.3, 0.7],
+        ]
+    )
+    sync_lhs = np.array(
+        [
+            [0.2, -0.4, 0.8, -0.1, 0.5, 0.3],
+            [-0.5, 0.6, 0.1, -0.2, 0.4, -0.3],
+        ]
+    )
+    dust_rhs = np.array(
+        [
+            [0.8, 0.2, -0.1, 0.5, 0.0, -0.2],
+            [0.3, -0.1, 0.4, 0.2, -0.2, 0.5],
+        ]
+    )
+    sync_rhs = np.array(
+        [
+            [0.1, -0.2, 0.7, 0.0, 0.3, 0.2],
+            [-0.4, 0.5, 0.2, -0.1, 0.2, -0.2],
+        ]
+    )
+    amplitudes_true = np.array([1.25, -0.55])
+    target = amplitudes_true[0] * dust_rhs + amplitudes_true[1] * sync_rhs
+
+    result = ftf.weighted_template_gls(
+        target_qu=target,
+        templates_qu=np.stack([dust_lhs, sync_lhs], axis=0),
+        templates_rhs_qu=np.stack([dust_rhs, sync_rhs], axis=0),
+        weight_map=np.ones(npix),
+        template_names=("dust", "sync"),
+    )
+
+    np.testing.assert_allclose(result.amplitudes, amplitudes_true, atol=1e-12)
+    np.testing.assert_allclose(
+        result.processed_templates_rhs_qu,
+        np.stack([dust_rhs, sync_rhs], axis=0),
+        atol=1e-12,
+    )
+
+
 def test_realize_qu_noise_matches_requested_covariance() -> None:
     npix = 20_000
     covariance = np.array([[1.5], [0.9], [0.3]])
@@ -109,6 +154,7 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
         template_inputs=templates,
         weight_map=np.ones(npix),
         fwhm_out=0.0,
+        template_inputs_rhs=templates,
     )
     np.testing.assert_allclose(reference.amplitudes, amplitudes_true, atol=1e-12)
 
@@ -120,6 +166,7 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
         weight_map=np.ones(npix),
         fwhm_out=0.0,
         n_mc=8,
+        template_inputs_rhs=templates,
         rng=1234,
     )
 

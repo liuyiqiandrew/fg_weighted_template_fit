@@ -102,6 +102,7 @@ class WeightedFitResult:
     residual_qu: FloatArray
     processed_target_qu: FloatArray
     processed_templates_qu: FloatArray
+    processed_templates_rhs_qu: FloatArray
     template_names: tuple[str, ...]
     solver: str
 

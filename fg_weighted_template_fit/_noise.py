@@ -25,12 +25,56 @@ def bootstrap_template_amplitudes(
     fwhm_out: float,
     *,
     n_mc: int,
+    template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
     rng: np.random.Generator | int | None = None,
 ) -> BootstrapFitResult:
-    """Estimate template amplitude uncertainty with Monte Carlo noise draws."""
+    """Estimate template amplitude uncertainty with Monte Carlo noise draws.
+
+    Parameters
+    ----------
+    target_qu
+        Target Q/U map with shape ``(2, npix)`` or ``(npix, 2)``.
+    target_noise_cov
+        Per-pixel target-map covariance in the order ``QQ, UU, QU`` with shape
+        ``(3, npix)`` or ``(npix, 3)``.
+    target_fwhm_in
+        Beam FWHM of the target map in radians.
+    template_inputs
+        Sequence of left-hand template definitions used in the fit.
+    weight_map
+        Diagonal pixel weight map used in the fit.
+    fwhm_out
+        Common output beam FWHM in radians.
+    n_mc
+        Number of Monte Carlo realizations.
+    template_inputs_rhs
+        Optional sequence of right-hand template definitions for the cross
+        normal matrix.
+    target_filter
+        Optional harmonic filter applied to the target map. Template entries may
+        override this with their own ``filter_config`` values.
+    mask
+        Optional binary or floating fit mask.
+    nest
+        If ``True``, maps are treated as NEST ordered during harmonic
+        transforms.
+    rng
+        Existing random generator, integer seed, or ``None``.
+
+    Returns
+    -------
+    BootstrapFitResult
+        Reference fit together with the amplitude recovered from each Monte
+        Carlo realization.
+
+    Raises
+    ------
+    ValueError
+        If ``n_mc`` is not positive.
+    """
 
     if n_mc <= 0:
         raise ValueError("n_mc must be a positive integer.")
@@ -41,6 +85,7 @@ def bootstrap_template_amplitudes(
         template_inputs=template_inputs,
         weight_map=weight_map,
         fwhm_out=fwhm_out,
+        template_inputs_rhs=template_inputs_rhs,
         target_filter=target_filter,
         mask=mask,
         nest=nest,
@@ -65,12 +110,20 @@ def bootstrap_template_amplitudes(
             _realize_noisy_template_input(template_input, rng_obj)
             for template_input in template_inputs
         )
+        if template_inputs_rhs is None:
+            noisy_templates_rhs = None
+        else:
+            noisy_templates_rhs = tuple(
+                _realize_noisy_template_input(template_input, rng_obj)
+                for template_input in template_inputs_rhs
+            )
         draw_fit = fit_foreground_templates(
             target_qu=noisy_target,
             target_fwhm_in=target_fwhm_in,
             template_inputs=noisy_templates,
             weight_map=weight_map,
             fwhm_out=fwhm_out,
+            template_inputs_rhs=noisy_templates_rhs,
             target_filter=target_filter,
             mask=mask,
             nest=nest,
@@ -92,7 +145,26 @@ def realize_qu_noise(
     *,
     rng: np.random.Generator | int | None = None,
 ) -> FloatArray:
-    """Realize a Q/U noise map from per-pixel ``QQ, UU, QU`` covariance."""
+    """Realize a Q/U noise map from per-pixel ``QQ, UU, QU`` covariance.
+
+    Parameters
+    ----------
+    pixel_cov_qu
+        Covariance array with shape ``(3, npix)`` or ``(npix, 3)`` in the
+        order ``QQ, UU, QU``.
+    rng
+        Existing random generator, integer seed, or ``None``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Noise realization with shape ``(2, npix)``.
+
+    Raises
+    ------
+    ValueError
+        If the covariance is not positive semi-definite on a per-pixel basis.
+    """
 
     covariance = as_covariance(pixel_cov_qu, name="pixel_cov_qu")
     qq, uu, qu = covariance
@@ -124,6 +196,23 @@ def _realize_noisy_template_input(
     template_input: DifferenceTemplateInput,
     rng: np.random.Generator,
 ) -> DifferenceTemplateInput:
+    """Add one noise realization to the two maps defining a template input.
+
+    Parameters
+    ----------
+    template_input
+        Template definition containing the input maps and optional per-pixel
+        noise covariances.
+    rng
+        Random generator used for the noise draw.
+
+    Returns
+    -------
+    DifferenceTemplateInput
+        Copy of ``template_input`` with realized noise added to ``map_a_qu`` and
+        ``map_b_qu`` when the corresponding covariance arrays are available.
+    """
+
     map_a_qu = as_qu_map(template_input.map_a_qu, name="template_input.map_a_qu")
     map_b_qu = as_qu_map(template_input.map_b_qu, name="template_input.map_b_qu")
 

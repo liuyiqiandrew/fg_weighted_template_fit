@@ -61,6 +61,7 @@ Fields:
 - `residual_qu`
 - `processed_target_qu`
 - `processed_templates_qu`
+- `processed_templates_rhs_qu`
 - `template_names`
 - `solver`
 
@@ -141,6 +142,7 @@ weighted_template_gls(
     templates_qu,
     weight_map,
     *,
+    templates_rhs_qu=None,
     mask=None,
     template_names=None,
 )
@@ -149,7 +151,7 @@ weighted_template_gls(
 Solves the weighted normal equations
 
 ```text
-(T^T W T) a = T^T W m
+(T_left^T W T_right) a = T_left^T W m
 ```
 
 with Q/U pixels stacked into one data vector.
@@ -164,6 +166,10 @@ Accepted weight shapes:
 Important behavior:
 
 - non-finite target, template, and weight entries are automatically removed
+- `templates_qu` is the left-hand template stack
+- `templates_rhs_qu` is the right-hand template stack
+- if `templates_rhs_qu` is omitted, the routine falls back to the
+  same-template normal matrix
 - if the normal matrix is singular, the routine falls back to a pseudoinverse
 
 ### `fit_foreground_templates`
@@ -176,6 +182,7 @@ fit_foreground_templates(
     weight_map,
     fwhm_out,
     *,
+    template_inputs_rhs=None,
     target_filter=None,
     mask=None,
     nest=False,
@@ -185,7 +192,8 @@ fit_foreground_templates(
 High-level entry point that:
 
 - smooths and filters the target map
-- constructs all requested templates
+- constructs the left-hand template stack
+- optionally constructs an independent right-hand template stack
 - solves for the weighted template amplitudes
 
 ### `realize_qu_noise`
@@ -218,6 +226,7 @@ bootstrap_template_amplitudes(
     fwhm_out,
     *,
     n_mc,
+    template_inputs_rhs=None,
     target_filter=None,
     mask=None,
     nest=False,
@@ -228,11 +237,12 @@ bootstrap_template_amplitudes(
 Runs Monte Carlo amplitude estimation by:
 
 1. realizing noise for the target map
-2. realizing noise for the maps used to construct each template
-3. rebuilding templates at the target output resolution
-4. reapplying harmonic filtering
-5. refitting amplitudes
-6. storing the recovered amplitudes from every draw
+2. realizing noise for the maps used to construct each left-hand template
+3. optionally realizing noise for the independent right-hand template stack
+4. rebuilding templates at the target output resolution
+5. reapplying harmonic filtering
+6. refitting amplitudes
+7. storing the recovered amplitudes from every draw
 
 The output spread is reported through `amplitude_std`, and every draw is kept in
 `amplitude_samples`.

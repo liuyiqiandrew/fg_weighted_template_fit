@@ -131,7 +131,32 @@ def construct_difference_template(
     filter_config: HarmonicFilter | None = None,
     nest: bool = False,
 ) -> FloatArray:
-    """Construct a foreground template from the difference of two Q/U maps."""
+    """Construct a foreground template from the difference of two Q/U maps.
+
+    Parameters
+    ----------
+    map_a_qu
+        First Q/U map with shape ``(2, npix)`` or ``(npix, 2)``.
+    map_b_qu
+        Second Q/U map with shape ``(2, npix)`` or ``(npix, 2)``.
+    fwhm_in_a
+        Beam FWHM of ``map_a_qu`` in radians.
+    fwhm_in_b
+        Beam FWHM of ``map_b_qu`` in radians.
+    fwhm_out
+        Common output beam FWHM in radians.
+    filter_config
+        Optional harmonic filter applied after beam matching.
+    nest
+        If ``True``, input maps are interpreted as NEST ordered during the
+        harmonic transform stage.
+
+    Returns
+    -------
+    numpy.ndarray
+        Difference template ``processed(map_a_qu) - processed(map_b_qu)`` with
+        shape ``(2, npix)``.
+    """
 
     map_a_processed = smooth_and_filter_qu_map(
         map_a_qu,
@@ -157,7 +182,33 @@ def build_template_stack(
     default_filter: HarmonicFilter | None = None,
     nest: bool = False,
 ) -> tuple[FloatArray, tuple[str, ...]]:
-    """Construct a stack of difference templates ready for fitting."""
+    """Construct a stack of difference templates ready for fitting.
+
+    Parameters
+    ----------
+    template_inputs
+        Sequence of template definitions. Each entry specifies the two maps
+        used to build one difference template.
+    fwhm_out
+        Common output beam FWHM in radians for all templates.
+    default_filter
+        Harmonic filter used for template entries that do not define their own
+        ``filter_config``.
+    nest
+        If ``True``, input maps are interpreted as NEST ordered during the
+        harmonic transform stage.
+
+    Returns
+    -------
+    tuple
+        Tuple ``(templates, template_names)`` where ``templates`` has shape
+        ``(n_template, 2, npix)``.
+
+    Raises
+    ------
+    ValueError
+        If ``template_inputs`` is empty.
+    """
 
     template_maps: list[FloatArray] = []
     template_names: list[str] = []
@@ -188,6 +239,24 @@ def _is_identity_harmonic_operation(
     fwhm_out: float,
     filter_config: HarmonicFilter,
 ) -> bool:
+    """Check whether smoothing/filtering would leave the map unchanged.
+
+    Parameters
+    ----------
+    fwhm_in
+        Input beam FWHM in radians.
+    fwhm_out
+        Requested output beam FWHM in radians.
+    filter_config
+        Harmonic filter configuration.
+
+    Returns
+    -------
+    bool
+        ``True`` when no beam change, no explicit filters, and no cutoff-based
+        filters are requested.
+    """
+
     no_beam_change = np.isclose(fwhm_in, fwhm_out)
     no_ell_filter = filter_config.ell_filter is None
     no_m_filter = filter_config.m_filter is None
@@ -203,6 +272,14 @@ def _is_identity_harmonic_operation(
 
 
 def _require_healpy() -> None:
+    """Raise an informative error when Healpy-dependent paths are requested.
+
+    Raises
+    ------
+    ImportError
+        If ``healpy`` is not available in the current Python environment.
+    """
+
     if hp is None:
         raise ImportError(
             "healpy is required for beam smoothing or harmonic filtering. "
@@ -211,6 +288,27 @@ def _require_healpy() -> None:
 
 
 def _resolve_lmax(nside: int, filter_config: HarmonicFilter) -> int:
+    """Resolve the harmonic truncation consistent with map and filter support.
+
+    Parameters
+    ----------
+    nside
+        Healpix ``nside`` of the working map.
+    filter_config
+        Harmonic filter configuration.
+
+    Returns
+    -------
+    int
+        Maximum multipole used in the harmonic transform.
+
+    Raises
+    ------
+    ValueError
+        If the requested ``lmax`` exceeds the supported range or resolves to a
+        value smaller than 2.
+    """
+
     native_lmax = 3 * nside - 1
     max_supported = native_lmax
 
@@ -252,6 +350,26 @@ def _build_ell_transfer(
     fwhm_out: float,
     filter_config: HarmonicFilter,
 ) -> FloatArray:
+    """Assemble the full multipole transfer function for beam/filter matching.
+
+    Parameters
+    ----------
+    lmax
+        Maximum multipole included in the transfer function.
+    fwhm_in
+        Input beam FWHM in radians.
+    fwhm_out
+        Output beam FWHM in radians.
+    filter_config
+        Harmonic filter configuration.
+
+    Returns
+    -------
+    numpy.ndarray
+        Multiplicative transfer function indexed by ``ell`` with length
+        ``lmax + 1``.
+    """
+
     ells = np.arange(lmax + 1, dtype=np.float64)
     sigma_in = _fwhm_to_sigma(fwhm_in)
     sigma_out = _fwhm_to_sigma(fwhm_out)
@@ -283,6 +401,18 @@ def _apply_m_filter_inplace(
     filter_config: HarmonicFilter,
     lmax: int,
 ) -> None:
+    """Apply the configured explicit and cutoff-based ``m`` filters in place.
+
+    Parameters
+    ----------
+    alm
+        Harmonic coefficients modified in place.
+    filter_config
+        Harmonic filter configuration.
+    lmax
+        Maximum multipole of ``alm``.
+    """
+
     m_transfer = np.ones(lmax + 1, dtype=np.float64)
 
     if filter_config.m_filter is not None:
@@ -311,7 +441,30 @@ def _build_apodized_lowpass(
     halfwidth: float,
     transition_type: str,
 ) -> FloatArray:
-    """Build a low-pass taper with a NaMaster-style smooth edge."""
+    """Build a low-pass taper with a NaMaster-style smooth edge.
+
+    Parameters
+    ----------
+    num_modes
+        Number of discrete modes in the output transfer function.
+    cutoff
+        Center of the low-pass transition band.
+    halfwidth
+        Half-width of the transition band. A value of zero gives a hard cutoff.
+    transition_type
+        Smooth edge type. Supported values are ``"C1"`` and ``"C2"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Low-pass transfer function with length ``num_modes``.
+
+    Raises
+    ------
+    ValueError
+        If ``num_modes`` is not positive, or if ``cutoff``/``halfwidth`` are
+        negative.
+    """
 
     if num_modes <= 0:
         raise ValueError("num_modes must be positive.")
@@ -348,6 +501,26 @@ def _namaster_transition_profile(
     x: FloatArray,
     transition_type: str,
 ) -> FloatArray:
+    """Evaluate the normalized NaMaster-style edge profile.
+
+    Parameters
+    ----------
+    x
+        Normalized transition coordinate in the interval ``[0, 1]``.
+    transition_type
+        Smooth edge type. Supported values are ``"C1"`` and ``"C2"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Edge profile evaluated at ``x``.
+
+    Raises
+    ------
+    ValueError
+        If ``transition_type`` is not one of the supported options.
+    """
+
     transition = transition_type.upper()
     if transition == "C1":
         return x - np.sin(2.0 * np.pi * x) / (2.0 * np.pi)
@@ -357,4 +530,17 @@ def _namaster_transition_profile(
 
 
 def _fwhm_to_sigma(fwhm: float) -> float:
+    """Convert a Gaussian FWHM to its standard deviation.
+
+    Parameters
+    ----------
+    fwhm
+        Full width at half maximum in radians.
+
+    Returns
+    -------
+    float
+        Corresponding Gaussian standard deviation in radians.
+    """
+
     return float(fwhm) / np.sqrt(8.0 * np.log(2.0))

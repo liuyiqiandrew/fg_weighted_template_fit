@@ -17,23 +17,31 @@ The main package is [`fg_weighted_template_fit/`](./fg_weighted_template_fit).
 
 ## Method
 
-For a target polarization map `m` and a stack of templates `T`, the fitted
-amplitudes are
+For a target polarization map `m` and left/right template stacks
+`T_left`, `T_right`, the fitted amplitudes are
 
 ```text
-a_hat = (T^T W T)^(-1) T^T W m
+a_hat = (T_left^T W T_right)^(-1) T_left^T W m
 ```
 
 where:
 
 - `m` is the target map with Q and U pixels stacked into one data vector
-- `T` is the matrix of stacked template maps
+- `T_left` and `T_right` are matrices of stacked template maps
 - `W` is a diagonal weight map supplied by the user
 
-This is not the fully optimal generalized least-squares estimator you would get
-from a full inverse covariance matrix, but it is often a useful fast estimator
-when a scalar or diagonal weight definition is already available and you want a
-swift amplitude estimate.
+Using separate left and right template realizations is useful when you want to
+avoid noise bias from a template auto-term in the normal matrix. If no separate
+right-hand stack is supplied, the package falls back to the same-template solve
+
+```text
+a_hat = (T^T W T)^(-1) T^T W m
+```
+
+This is still not the fully optimal generalized least-squares estimator you
+would get from a full inverse covariance matrix, but it is often a useful fast
+estimator when a scalar or diagonal weight definition is already available and
+you want a swift amplitude estimate.
 
 ## Repository Layout
 
@@ -100,7 +108,7 @@ import fg_weighted_template_fit as ftf
 target_qu = np.random.standard_normal((2, 12 * 8**2))
 weight_map = np.ones(target_qu.shape[1])
 
-dust_input = ftf.DifferenceTemplateInput(
+dust_split_a = ftf.DifferenceTemplateInput(
     map_a_qu=planck_353_qu,
     map_b_qu=planck_217_qu,
     fwhm_in_a=fwhm_353_rad,
@@ -108,9 +116,25 @@ dust_input = ftf.DifferenceTemplateInput(
     name="dust",
 )
 
-sync_input = ftf.DifferenceTemplateInput(
+dust_split_b = ftf.DifferenceTemplateInput(
+    map_a_qu=planck_353_split_b_qu,
+    map_b_qu=planck_217_split_b_qu,
+    fwhm_in_a=fwhm_353_rad,
+    fwhm_in_b=fwhm_217_rad,
+    name="dust",
+)
+
+sync_split_a = ftf.DifferenceTemplateInput(
     map_a_qu=wm23_qu,
     map_b_qu=ka23_qu,
+    fwhm_in_a=fwhm_w_rad,
+    fwhm_in_b=fwhm_ka_rad,
+    name="sync",
+)
+
+sync_split_b = ftf.DifferenceTemplateInput(
+    map_a_qu=wm23_split_b_qu,
+    map_b_qu=ka23_split_b_qu,
     fwhm_in_a=fwhm_w_rad,
     fwhm_in_b=fwhm_ka_rad,
     name="sync",
@@ -127,7 +151,8 @@ filter_config = ftf.HarmonicFilter(
 result = ftf.fit_foreground_templates(
     target_qu=target_qu,
     target_fwhm_in=target_fwhm_rad,
-    template_inputs=[dust_input, sync_input],
+    template_inputs=[dust_split_a, sync_split_a],
+    template_inputs_rhs=[dust_split_b, sync_split_b],
     weight_map=weight_map,
     fwhm_out=common_fwhm_rad,
     target_filter=filter_config,
@@ -144,7 +169,8 @@ bootstrap = ftf.bootstrap_template_amplitudes(
     target_qu=target_qu,
     target_noise_cov=target_noise_cov,
     target_fwhm_in=target_fwhm_rad,
-    template_inputs=[dust_input, sync_input],
+    template_inputs=[dust_split_a, sync_split_a],
+    template_inputs_rhs=[dust_split_b, sync_split_b],
     weight_map=weight_map,
     fwhm_out=common_fwhm_rad,
     n_mc=200,
@@ -182,6 +208,10 @@ Most users will interact with:
 - `bootstrap_template_amplitudes`
 - `construct_difference_template`
 - `smooth_and_filter_qu_map`
+
+If you want the cross-template estimator specifically, pass the left-hand split
+through `template_inputs` and the independent right-hand split through
+`template_inputs_rhs`.
 
 A more detailed API reference is available in [`docs/api.md`](./docs/api.md).
 
