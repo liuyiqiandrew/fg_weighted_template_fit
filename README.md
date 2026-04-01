@@ -113,6 +113,8 @@ dust_split_a = ftf.DifferenceTemplateInput(
     map_b_qu=planck_217_qu,
     fwhm_in_a=fwhm_353_rad,
     fwhm_in_b=fwhm_217_rad,
+    noise_cov_a=planck_353_cov,
+    noise_cov_b=planck_217_cov,
     name="dust",
 )
 
@@ -121,6 +123,8 @@ dust_split_b = ftf.DifferenceTemplateInput(
     map_b_qu=planck_217_split_b_qu,
     fwhm_in_a=fwhm_353_rad,
     fwhm_in_b=fwhm_217_rad,
+    noise_cov_a=planck_353_split_b_cov,
+    noise_cov_b=planck_217_split_b_cov,
     name="dust",
 )
 
@@ -129,6 +133,8 @@ sync_split_a = ftf.DifferenceTemplateInput(
     map_b_qu=ka23_qu,
     fwhm_in_a=fwhm_w_rad,
     fwhm_in_b=fwhm_ka_rad,
+    noise_cov_a=wm23_cov,
+    noise_cov_b=ka23_cov,
     name="sync",
 )
 
@@ -137,6 +143,8 @@ sync_split_b = ftf.DifferenceTemplateInput(
     map_b_qu=ka23_split_b_qu,
     fwhm_in_a=fwhm_w_rad,
     fwhm_in_b=fwhm_ka_rad,
+    noise_cov_a=wm23_split_b_cov,
+    noise_cov_b=ka23_split_b_cov,
     name="sync",
 )
 
@@ -164,6 +172,10 @@ print(result.amplitudes)
 
 ## Monte Carlo Uncertainty Example
 
+The Monte Carlo routine can propagate uncertainty from both the target map and
+the maps used to build the templates. Template uncertainty is included when
+each `DifferenceTemplateInput` carries `noise_cov_a` and `noise_cov_b`.
+
 ```python
 bootstrap = ftf.bootstrap_template_amplitudes(
     target_qu=target_qu,
@@ -182,6 +194,16 @@ print(bootstrap.amplitude_mean)
 print(bootstrap.amplitude_std)
 print(bootstrap.amplitude_samples.shape)
 ```
+
+In the example above, the reported `bootstrap.amplitude_std` includes:
+
+- target-map noise from `target_noise_cov`
+- template-map noise from `noise_cov_a` and `noise_cov_b` on each template input
+- the effect of rebuilding the templates after adding those noise realizations
+
+If template noise covariances are omitted, the Monte Carlo spread will only
+reflect target-map noise and will therefore underestimate the total uncertainty
+associated with noisy templates.
 
 ## Filtering Options
 

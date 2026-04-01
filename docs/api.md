@@ -247,6 +247,14 @@ Runs Monte Carlo amplitude estimation by:
 The output spread is reported through `amplitude_std`, and every draw is kept in
 `amplitude_samples`.
 
+Usage note:
+
+- `amplitude_std` includes template-map uncertainty when the corresponding
+  `DifferenceTemplateInput` entries provide `noise_cov_a` and `noise_cov_b`
+- if those template noise covariances are omitted, the Monte Carlo spread only
+  reflects target-map noise and any uncertainty induced by the supplied target
+  covariance
+
 ## Data Conventions
 
 - Q/U maps may be passed as `(2, npix)` or `(npix, 2)`.
