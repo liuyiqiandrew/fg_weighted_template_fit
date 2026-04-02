@@ -188,12 +188,17 @@ bootstrap = ftf.bootstrap_template_amplitudes(
     n_mc=200,
     target_filter=filter_config,
     rng=1234,
+    show_progress=True,
 )
 
 print(bootstrap.amplitude_mean)
 print(bootstrap.amplitude_std)
 print(bootstrap.amplitude_samples.shape)
 ```
+
+Pass `show_progress=True` to show a standard `tqdm` progress bar in notebooks
+or terminals while the Monte Carlo draws are running, without relying on
+ipywidgets.
 
 In the example above, the reported `bootstrap.amplitude_std` includes:
 

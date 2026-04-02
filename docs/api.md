@@ -232,6 +232,7 @@ bootstrap_template_amplitudes(
     mask=None,
     nest=False,
     rng=None,
+    show_progress=False,
 )
 ```
 
@@ -255,6 +256,8 @@ Usage note:
 - if those template noise covariances are omitted, the Monte Carlo spread only
   reflects target-map noise and any uncertainty induced by the supplied target
   covariance
+- `show_progress=True` displays a standard `tqdm` progress bar over the Monte
+  Carlo draws and does not depend on ipywidgets
 
 ## Data Conventions
 

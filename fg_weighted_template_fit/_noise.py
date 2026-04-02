@@ -15,6 +15,11 @@ from ._types import (
     HarmonicFilter,
 )
 
+try:
+    from tqdm import tqdm as _tqdm
+except ImportError:  # pragma: no cover - exercised only when tqdm is unavailable.
+    _tqdm = None
+
 
 def bootstrap_template_amplitudes(
     target_qu: npt.ArrayLike,
@@ -30,6 +35,7 @@ def bootstrap_template_amplitudes(
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
     rng: np.random.Generator | int | None = None,
+    show_progress: bool = False,
 ) -> BootstrapFitResult:
     """Estimate template amplitude uncertainty with Monte Carlo noise draws.
 
@@ -63,6 +69,9 @@ def bootstrap_template_amplitudes(
         transforms.
     rng
         Existing random generator, integer seed, or ``None``.
+    show_progress
+        If ``True``, display a standard ``tqdm`` progress bar over the Monte
+        Carlo draws. This avoids relying on notebook widget frontends.
 
     Returns
     -------
@@ -74,6 +83,8 @@ def bootstrap_template_amplitudes(
     ------
     ValueError
         If ``n_mc`` is not positive.
+    ImportError
+        If ``show_progress`` is ``True`` but ``tqdm`` is not installed.
     """
 
     if n_mc <= 0:
@@ -99,7 +110,13 @@ def bootstrap_template_amplitudes(
     )
 
     samples = np.zeros((n_mc, len(reference_fit.template_names)), dtype=np.float64)
-    for draw_index in range(n_mc):
+    draw_indices = _wrap_progress(
+        range(n_mc),
+        show_progress=show_progress,
+        total=n_mc,
+        desc="Bootstrap MC",
+    )
+    for draw_index in draw_indices:
         # Realize noise on the native-resolution inputs first so every draw goes
         # through the same smoothing/filtering/template-construction pipeline.
         noisy_target = as_qu_map(target_qu, name="target_qu") + realize_qu_noise(
@@ -226,3 +243,22 @@ def _realize_noisy_template_input(
         map_a_qu=map_a_qu,
         map_b_qu=map_b_qu,
     )
+
+
+def _wrap_progress(
+    iterable: Sequence[int] | range,
+    *,
+    show_progress: bool,
+    total: int,
+    desc: str,
+):
+    """Optionally wrap an iterable in a tqdm progress bar."""
+
+    if not show_progress:
+        return iterable
+    if _tqdm is None:
+        raise ImportError(
+            "show_progress=True requires tqdm. Install tqdm or pass "
+            "show_progress=False."
+        )
+    return _tqdm(iterable, total=total, desc=desc, unit="draw")

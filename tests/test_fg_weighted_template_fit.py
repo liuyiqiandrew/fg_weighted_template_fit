@@ -5,6 +5,7 @@ import pytest
 
 import fg_weighted_template_fit as ftf
 import fg_weighted_template_fit._filters as filters_mod
+import fg_weighted_template_fit._noise as noise_mod
 
 
 def test_weighted_template_gls_recovers_known_amplitudes() -> None:
@@ -176,6 +177,84 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
     assert bootstrap.amplitude_samples.shape == (8, 2)
     assert np.all(np.isfinite(bootstrap.amplitude_samples))
     assert np.all(bootstrap.amplitude_std > 0.0)
+
+
+def test_bootstrap_template_amplitudes_show_progress_uses_tqdm(monkeypatch) -> None:
+    npix = 6
+    template = np.array(
+        [
+            [1.0, 0.5, -0.2, 0.3, 0.8, -0.4],
+            [0.2, -0.3, 0.6, 1.2, -0.5, 0.1],
+        ]
+    )
+    target = 1.7 * template
+    target_noise_cov = np.zeros((3, npix), dtype=np.float64)
+
+    template_input = ftf.DifferenceTemplateInput(
+        map_a_qu=template,
+        map_b_qu=np.zeros_like(template),
+        fwhm_in_a=0.0,
+        fwhm_in_b=0.0,
+        name="dust",
+    )
+
+    calls: list[dict[str, object]] = []
+
+    def fake_tqdm(iterable, **kwargs):
+        calls.append(kwargs)
+        return iterable
+
+    monkeypatch.setattr(noise_mod, "_tqdm", fake_tqdm)
+
+    result = ftf.bootstrap_template_amplitudes(
+        target_qu=target,
+        target_noise_cov=target_noise_cov,
+        target_fwhm_in=0.0,
+        template_inputs=(template_input,),
+        weight_map=np.ones(npix),
+        fwhm_out=0.0,
+        n_mc=3,
+        rng=1234,
+        show_progress=True,
+    )
+
+    assert result.amplitude_samples.shape == (3, 1)
+    assert calls == [{"total": 3, "desc": "Bootstrap MC", "unit": "draw"}]
+
+
+def test_bootstrap_template_amplitudes_show_progress_requires_tqdm(
+    monkeypatch,
+) -> None:
+    npix = 6
+    template = np.array(
+        [
+            [1.0, 0.5, -0.2, 0.3, 0.8, -0.4],
+            [0.2, -0.3, 0.6, 1.2, -0.5, 0.1],
+        ]
+    )
+    target_noise_cov = np.zeros((3, npix), dtype=np.float64)
+
+    template_input = ftf.DifferenceTemplateInput(
+        map_a_qu=template,
+        map_b_qu=np.zeros_like(template),
+        fwhm_in_a=0.0,
+        fwhm_in_b=0.0,
+        name="dust",
+    )
+
+    monkeypatch.setattr(noise_mod, "_tqdm", None)
+
+    with pytest.raises(ImportError, match="requires tqdm"):
+        ftf.bootstrap_template_amplitudes(
+            target_qu=template,
+            target_noise_cov=target_noise_cov,
+            target_fwhm_in=0.0,
+            template_inputs=(template_input,),
+            weight_map=np.ones(npix),
+            fwhm_out=0.0,
+            n_mc=2,
+            show_progress=True,
+        )
 
 
 def test_apodized_highpass_matches_c1_and_c2_profiles() -> None:
