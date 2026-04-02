@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import fg_weighted_template_fit as ftf
+import fg_weighted_template_fit._filters as filters_mod
 
 
 def test_weighted_template_gls_recovers_known_amplitudes() -> None:
@@ -176,35 +178,43 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
     assert np.all(bootstrap.amplitude_std > 0.0)
 
 
-def test_apodized_lowpass_matches_c1_and_c2_profiles() -> None:
-    c2_window = ftf._build_apodized_lowpass(
+def test_apodized_highpass_matches_c1_and_c2_profiles() -> None:
+    c2_window = ftf._build_apodized_highpass(
         num_modes=10,
         cutoff=5.0,
         halfwidth=2.0,
         transition_type="C2",
     )
-    c1_window = ftf._build_apodized_lowpass(
+    c1_window = ftf._build_apodized_highpass(
         num_modes=10,
         cutoff=5.0,
         halfwidth=2.0,
         transition_type="C1",
     )
 
-    np.testing.assert_allclose(c2_window[:4], 1.0)
-    np.testing.assert_allclose(c1_window[:4], 1.0)
-    np.testing.assert_allclose(c2_window[7:], 0.0)
-    np.testing.assert_allclose(c1_window[7:], 0.0)
+    np.testing.assert_allclose(c2_window[:4], 0.0)
+    np.testing.assert_allclose(c1_window[:4], 0.0)
+    np.testing.assert_allclose(c2_window[7:], 1.0)
+    np.testing.assert_allclose(c1_window[7:], 1.0)
 
     transition_x = np.array([0.25, 0.5, 0.75])
-    expected_c2 = 0.5 * (1.0 + np.cos(np.pi * transition_x))
-    expected_c1 = 1.0 - (
-        transition_x - np.sin(2.0 * np.pi * transition_x) / (2.0 * np.pi)
-    )
+    expected_c2 = 0.5 * (1.0 - np.cos(np.pi * transition_x))
+    expected_c1 = transition_x - np.sin(2.0 * np.pi * transition_x) / (2.0 * np.pi)
 
     np.testing.assert_allclose(c2_window[4:7], expected_c2)
     np.testing.assert_allclose(c1_window[4:7], expected_c1)
 
 
+def test_resolve_lmax_does_not_truncate_highpass_ell_cutoff() -> None:
+    filter_config = ftf.HarmonicFilter(
+        ell_cutoff=3.0,
+        ell_halfwidth=1.0,
+    )
+
+    assert filters_mod._resolve_lmax(nside=8, filter_config=filter_config) == 23
+
+
+@pytest.mark.skipif(filters_mod.hp is None, reason="healpy not installed")
 def test_smooth_and_filter_qu_map_smoothing_reduces_variance() -> None:
     nside = 8
     npix = 12 * nside**2
@@ -221,6 +231,7 @@ def test_smooth_and_filter_qu_map_smoothing_reduces_variance() -> None:
     assert np.var(smoothed) < np.var(qu_map)
 
 
+@pytest.mark.skipif(filters_mod.hp is None, reason="healpy not installed")
 def test_smooth_and_filter_qu_map_accepts_m_cutoff_with_smooth_edge() -> None:
     nside = 8
     npix = 12 * nside**2

@@ -210,13 +210,13 @@ associated with noisy templates.
 `HarmonicFilter` supports two styles of harmonic filtering:
 
 - Explicit transfer arrays via `ell_filter` and `m_filter`
-- Smooth low-pass cutoffs via `ell_cutoff`, `ell_halfwidth`, `m_cutoff`,
+- Smooth high-pass cutoffs via `ell_cutoff`, `ell_halfwidth`, `m_cutoff`,
   `m_halfwidth`, and `transition_type`
 
 For cutoff-based filters:
 
-- modes below `cutoff - halfwidth` pass unchanged
-- modes above `cutoff + halfwidth` are set to zero
+- modes below `cutoff - halfwidth` are set to zero
+- modes above `cutoff + halfwidth` pass unchanged
 - the transition band uses a NaMaster-style `C1` or `C2` edge
 - the default transition type is `C2`
 

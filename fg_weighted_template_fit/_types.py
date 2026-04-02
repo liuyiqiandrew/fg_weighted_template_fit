@@ -20,14 +20,14 @@ class HarmonicFilter:
         Optional multiplicative transfer function indexed by azimuthal mode
         ``m``.
     ell_cutoff
-        Optional low-pass cutoff in multipole. The response is unity below
-        ``ell_cutoff - ell_halfwidth`` and zero above
+        Optional high-pass cutoff in multipole. The response is zero below
+        ``ell_cutoff - ell_halfwidth`` and unity above
         ``ell_cutoff + ell_halfwidth``.
     ell_halfwidth
         Half-width of the smooth transition around ``ell_cutoff``.
     m_cutoff
-        Optional low-pass cutoff in azimuthal mode. The response is unity below
-        ``m_cutoff - m_halfwidth`` and zero above ``m_cutoff + m_halfwidth``.
+        Optional high-pass cutoff in azimuthal mode. The response is zero below
+        ``m_cutoff - m_halfwidth`` and unity above ``m_cutoff + m_halfwidth``.
     m_halfwidth
         Half-width of the smooth transition around ``m_cutoff``.
     transition_type

@@ -13,9 +13,9 @@ Fields:
 
 - `ell_filter`: explicit multiplicative transfer function indexed by `ell`
 - `m_filter`: explicit multiplicative transfer function indexed by `m`
-- `ell_cutoff`: optional low-pass multipole cutoff
+- `ell_cutoff`: optional high-pass multipole cutoff
 - `ell_halfwidth`: half-width of the smooth `ell` transition
-- `m_cutoff`: optional low-pass azimuthal cutoff
+- `m_cutoff`: optional high-pass azimuthal cutoff
 - `m_halfwidth`: half-width of the smooth `m` transition
 - `transition_type`: `"C1"` or `"C2"` smooth edge, default `"C2"`
 - `lmax`: optional explicit harmonic truncation
@@ -24,7 +24,8 @@ Fields:
 Usage notes:
 
 - If both an explicit filter and a cutoff are provided, both are applied.
-- `m_cutoff` suppresses high-`m` modes but does not lower the transform `lmax`.
+- `ell_cutoff` and `m_cutoff` suppress low modes but do not lower the transform
+  `lmax`.
 - All beam widths used with filtering are in radians.
 
 ### `DifferenceTemplateInput`
@@ -265,6 +266,6 @@ Usage note:
 
 ## Internal Helpers
 
-The package also re-exports `_build_apodized_lowpass` for testing and inspection.
+The package re-exports `_build_apodized_highpass` for testing and inspection.
 It is not intended to be the main user-facing entry point, but it can be useful
 when validating filter shapes.

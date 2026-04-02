@@ -322,12 +322,6 @@ def _resolve_lmax(nside: int, filter_config: HarmonicFilter) -> int:
             max_supported,
             len(np.asarray(filter_config.m_filter)) - 1,
         )
-    if filter_config.ell_cutoff is not None:
-        max_supported = min(
-            max_supported,
-            int(np.ceil(filter_config.ell_cutoff + filter_config.ell_halfwidth)),
-        )
-
     if filter_config.lmax is None:
         lmax = max_supported
     else:
@@ -385,7 +379,7 @@ def _build_ell_transfer(
         transfer *= ell_filter_array[: lmax + 1]
 
     if filter_config.ell_cutoff is not None:
-        transfer *= _build_apodized_lowpass(
+        transfer *= _build_apodized_highpass(
             num_modes=lmax + 1,
             cutoff=filter_config.ell_cutoff,
             halfwidth=filter_config.ell_halfwidth,
@@ -422,7 +416,7 @@ def _apply_m_filter_inplace(
         m_transfer *= m_filter_array[: lmax + 1]
 
     if filter_config.m_cutoff is not None:
-        m_transfer *= _build_apodized_lowpass(
+        m_transfer *= _build_apodized_highpass(
             num_modes=lmax + 1,
             cutoff=filter_config.m_cutoff,
             halfwidth=filter_config.m_halfwidth,
@@ -434,21 +428,21 @@ def _apply_m_filter_inplace(
     alm *= m_transfer[emm]
 
 
-def _build_apodized_lowpass(
+def _build_apodized_highpass(
     *,
     num_modes: int,
     cutoff: float,
     halfwidth: float,
     transition_type: str,
 ) -> FloatArray:
-    """Build a low-pass taper with a NaMaster-style smooth edge.
+    """Build a high-pass taper with a NaMaster-style smooth edge.
 
     Parameters
     ----------
     num_modes
         Number of discrete modes in the output transfer function.
     cutoff
-        Center of the low-pass transition band.
+        Center of the high-pass transition band.
     halfwidth
         Half-width of the transition band. A value of zero gives a hard cutoff.
     transition_type
@@ -457,7 +451,7 @@ def _build_apodized_lowpass(
     Returns
     -------
     numpy.ndarray
-        Low-pass transfer function with length ``num_modes``.
+        High-pass transfer function with length ``num_modes``.
 
     Raises
     ------
@@ -475,26 +469,25 @@ def _build_apodized_lowpass(
 
     modes = np.arange(num_modes, dtype=np.float64)
     if halfwidth == 0:
-        return np.where(modes <= cutoff, 1.0, 0.0)
+        return np.where(modes >= cutoff, 1.0, 0.0)
 
     # Treat the cutoff as the center of the apodized band so the edge is fully
     # specified by the user-provided half-width.
     left = cutoff - halfwidth
     right = cutoff + halfwidth
 
-    response = np.ones(num_modes, dtype=np.float64)
-    response[modes >= right] = 0.0
+    response = np.zeros(num_modes, dtype=np.float64)
+    response[modes >= right] = 1.0
 
     transition = (modes > left) & (modes < right)
     if np.any(transition):
         x = (modes[transition] - left) / (right - left)
-        response[transition] = 1.0 - _namaster_transition_profile(
+        response[transition] = _namaster_transition_profile(
             x=x,
             transition_type=transition_type,
         )
 
     return response
-
 
 def _namaster_transition_profile(
     *,

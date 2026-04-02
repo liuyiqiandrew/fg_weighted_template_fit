@@ -1,5 +1,5 @@
 from ._filters import (
-    _build_apodized_lowpass,
+    _build_apodized_highpass,
     build_template_stack,
     construct_difference_template,
     smooth_and_filter_qu_map,
@@ -18,7 +18,7 @@ __all__ = [
     "DifferenceTemplateInput",
     "HarmonicFilter",
     "WeightedFitResult",
-    "_build_apodized_lowpass",
+    "_build_apodized_highpass",
     "bootstrap_template_amplitudes",
     "build_template_stack",
     "construct_difference_template",
