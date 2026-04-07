@@ -257,15 +257,15 @@ def test_bootstrap_template_amplitudes_show_progress_requires_tqdm(
         )
 
 
-def test_apodized_highpass_matches_c1_and_c2_profiles() -> None:
-    c2_window = ftf._build_apodized_highpass(
-        num_modes=10,
+def test_build_ell_filter_matches_c1_and_c2_profiles() -> None:
+    c2_window = ftf.build_ell_filter(
+        lmax=9,
         cutoff=5.0,
         halfwidth=2.0,
         transition_type="C2",
     )
-    c1_window = ftf._build_apodized_highpass(
-        num_modes=10,
+    c1_window = ftf.build_ell_filter(
+        lmax=9,
         cutoff=5.0,
         halfwidth=2.0,
         transition_type="C1",
@@ -282,6 +282,31 @@ def test_apodized_highpass_matches_c1_and_c2_profiles() -> None:
 
     np.testing.assert_allclose(c2_window[4:7], expected_c2)
     np.testing.assert_allclose(c1_window[4:7], expected_c1)
+
+
+def test_build_m_filter_matches_ell_filter_profile() -> None:
+    ell_window = ftf.build_ell_filter(
+        lmax=9,
+        cutoff=4.0,
+        halfwidth=1.0,
+        transition_type="C2",
+    )
+    m_window = ftf.build_m_filter(
+        lmax=9,
+        cutoff=4.0,
+        halfwidth=1.0,
+        transition_type="C2",
+    )
+
+    np.testing.assert_allclose(m_window, ell_window)
+
+
+def test_build_ell_filter_rejects_negative_lmax() -> None:
+    with pytest.raises(ValueError, match="lmax must be non-negative"):
+        ftf.build_ell_filter(
+            lmax=-1,
+            cutoff=3.0,
+        )
 
 
 def test_resolve_lmax_does_not_truncate_highpass_ell_cutoff() -> None:
@@ -331,3 +356,35 @@ def test_smooth_and_filter_qu_map_accepts_m_cutoff_with_smooth_edge() -> None:
     assert filtered.shape == qu_map.shape
     assert np.all(np.isfinite(filtered))
     assert np.var(filtered) < np.var(qu_map)
+
+
+@pytest.mark.skipif(filters_mod.hp is None, reason="healpy not installed")
+def test_smooth_and_filter_qu_map_accepts_public_explicit_filters() -> None:
+    nside = 8
+    npix = 12 * nside**2
+    rng = np.random.default_rng(456)
+    qu_map = rng.standard_normal((2, npix))
+
+    filtered = ftf.smooth_and_filter_qu_map(
+        qu_map=qu_map,
+        fwhm_in=0.0,
+        fwhm_out=0.0,
+        filter_config=ftf.HarmonicFilter(
+            ell_filter=ftf.build_ell_filter(
+                lmax=3 * nside - 1,
+                cutoff=6.0,
+                halfwidth=2.0,
+                transition_type="C2",
+            ),
+            m_filter=ftf.build_m_filter(
+                lmax=3 * nside - 1,
+                cutoff=4.0,
+                halfwidth=1.0,
+                transition_type="C1",
+            ),
+        ),
+    )
+
+    assert filtered.shape == qu_map.shape
+    assert np.all(np.isfinite(filtered))
+    assert not np.allclose(filtered, qu_map)

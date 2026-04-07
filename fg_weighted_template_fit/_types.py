@@ -16,9 +16,10 @@ class HarmonicFilter:
     ----------
     ell_filter
         Optional multiplicative transfer function indexed by multipole ``ell``.
+        Arrays from ``build_ell_filter`` can be passed here directly.
     m_filter
         Optional multiplicative transfer function indexed by azimuthal mode
-        ``m``.
+        ``m``. Arrays from ``build_m_filter`` can be passed here directly.
     ell_cutoff
         Optional high-pass cutoff in multipole. The response is zero below
         ``ell_cutoff - ell_halfwidth`` and unity above

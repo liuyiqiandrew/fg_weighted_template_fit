@@ -24,6 +24,8 @@ Fields:
 Usage notes:
 
 - If both an explicit filter and a cutoff are provided, both are applied.
+- `build_ell_filter` and `build_m_filter` return explicit windows that can be
+  passed to `ell_filter` and `m_filter`.
 - `ell_cutoff` and `m_cutoff` suppress low modes but do not lower the transform
   `lmax`.
 - All beam widths used with filtering are in radians.
@@ -79,6 +81,50 @@ Fields:
 - `template_names`
 
 ## Main Functions
+
+### `build_ell_filter`
+
+```python
+build_ell_filter(
+    lmax,
+    *,
+    cutoff,
+    halfwidth=0.0,
+    transition_type="C2",
+)
+```
+
+Builds a reusable high-pass `ell`-space transfer function with shape
+`(lmax + 1,)`.
+
+Important behavior:
+
+- returns the same taper shape used by `HarmonicFilter.ell_cutoff`
+- uses a hard cutoff when `halfwidth == 0`
+- supports `C1` and `C2` smooth edges
+- is intended for `HarmonicFilter(ell_filter=...)`
+
+### `build_m_filter`
+
+```python
+build_m_filter(
+    lmax,
+    *,
+    cutoff,
+    halfwidth=0.0,
+    transition_type="C2",
+)
+```
+
+Builds a reusable high-pass `m`-space transfer function with shape
+`(lmax + 1,)`.
+
+Important behavior:
+
+- returns the same taper shape used by `HarmonicFilter.m_cutoff`
+- uses a hard cutoff when `halfwidth == 0`
+- supports `C1` and `C2` smooth edges
+- is intended for `HarmonicFilter(m_filter=...)`
 
 ### `smooth_and_filter_qu_map`
 

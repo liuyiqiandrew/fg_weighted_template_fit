@@ -14,6 +14,87 @@ except ImportError:  # pragma: no cover - exercised only when healpy is unavaila
     hp = None
 
 
+def build_ell_filter(
+    lmax: int,
+    *,
+    cutoff: float,
+    halfwidth: float = 0.0,
+    transition_type: str = "C2",
+) -> FloatArray:
+    """Build a reusable high-pass ``ell``-space filter window.
+
+    Parameters
+    ----------
+    lmax
+        Maximum multipole index included in the returned transfer function.
+    cutoff
+        Center of the high-pass transition band in multipole ``ell``.
+    halfwidth
+        Half-width of the transition band. A value of zero gives a hard
+        cutoff.
+    transition_type
+        Smooth edge type. Supported values are ``"C1"`` and ``"C2"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Multiplicative ``ell``-space transfer function with shape
+        ``(lmax + 1,)``.
+
+    Notes
+    -----
+    The returned array is suitable for ``HarmonicFilter(ell_filter=...)``.
+    """
+
+    return _build_apodized_highpass(
+        num_modes=_num_modes_from_lmax(lmax),
+        cutoff=cutoff,
+        halfwidth=halfwidth,
+        transition_type=transition_type,
+    )
+
+
+def build_m_filter(
+    lmax: int,
+    *,
+    cutoff: float,
+    halfwidth: float = 0.0,
+    transition_type: str = "C2",
+) -> FloatArray:
+    """Build a reusable high-pass ``m``-space filter window.
+
+    Parameters
+    ----------
+    lmax
+        Maximum azimuthal mode index included in the returned transfer
+        function.
+    cutoff
+        Center of the high-pass transition band in azimuthal mode ``m``.
+    halfwidth
+        Half-width of the transition band. A value of zero gives a hard
+        cutoff.
+    transition_type
+        Smooth edge type. Supported values are ``"C1"`` and ``"C2"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Multiplicative ``m``-space transfer function with shape
+        ``(lmax + 1,)``.
+
+    Notes
+    -----
+    The returned array is suitable for ``HarmonicFilter(m_filter=...)``.
+    """
+
+    return _build_apodized_highpass(
+        num_modes=_num_modes_from_lmax(lmax),
+        cutoff=cutoff,
+        halfwidth=halfwidth,
+        transition_type=transition_type,
+    )
+
+
 def smooth_and_filter_qu_map(
     qu_map: npt.ArrayLike,
     fwhm_in: float,
@@ -488,6 +569,31 @@ def _build_apodized_highpass(
         )
 
     return response
+
+
+def _num_modes_from_lmax(lmax: int) -> int:
+    """Validate ``lmax`` and return the corresponding number of modes.
+
+    Parameters
+    ----------
+    lmax
+        Maximum harmonic index included in the returned filter.
+
+    Returns
+    -------
+    int
+        Number of discrete modes, equal to ``lmax + 1``.
+
+    Raises
+    ------
+    ValueError
+        If ``lmax`` is negative.
+    """
+
+    if lmax < 0:
+        raise ValueError("lmax must be non-negative.")
+    return lmax + 1
+
 
 def _namaster_transition_profile(
     *,

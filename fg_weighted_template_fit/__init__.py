@@ -1,5 +1,7 @@
 from ._filters import (
     _build_apodized_highpass,
+    build_ell_filter,
+    build_m_filter,
     build_template_stack,
     construct_difference_template,
     smooth_and_filter_qu_map,
@@ -20,6 +22,8 @@ __all__ = [
     "WeightedFitResult",
     "_build_apodized_highpass",
     "bootstrap_template_amplitudes",
+    "build_ell_filter",
+    "build_m_filter",
     "build_template_stack",
     "construct_difference_template",
     "fit_foreground_templates",

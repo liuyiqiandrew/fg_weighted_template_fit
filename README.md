@@ -74,6 +74,7 @@ Module responsibilities:
 - Difference-template construction for split maps such as dust or synchrotron
 - Common-beam matching from input `fwhm_in` to output `fwhm_out`
 - Optional harmonic filtering in both `ell` and `m`
+- Public helpers for reusable explicit `ell` and `m` filter arrays
 - Smooth `ell` and `m` cutoffs with `C1` or `C2` apodized edges
 - Weighted diagonal GLS-like solve for template amplitudes
 - Bootstrap uncertainty estimation from per-pixel `QQ`, `UU`, `QU` covariance
@@ -225,12 +226,41 @@ For cutoff-based filters:
 - the transition band uses a NaMaster-style `C1` or `C2` edge
 - the default transition type is `C2`
 
+If you want reusable explicit filter arrays, the package also exposes:
+
+- `build_ell_filter`
+- `build_m_filter`
+
+These helpers build the same high-pass taper used internally by the cutoff
+options, but return the window explicitly so you can reuse it across maps.
+
+```python
+lmax = 3 * nside - 1
+
+filter_config = ftf.HarmonicFilter(
+    ell_filter=ftf.build_ell_filter(
+        lmax=lmax,
+        cutoff=40.0,
+        halfwidth=10.0,
+        transition_type="C2",
+    ),
+    m_filter=ftf.build_m_filter(
+        lmax=lmax,
+        cutoff=20.0,
+        halfwidth=4.0,
+        transition_type="C1",
+    ),
+)
+```
+
 ## Public API
 
 Most users will interact with:
 
 - `HarmonicFilter`
 - `DifferenceTemplateInput`
+- `build_ell_filter`
+- `build_m_filter`
 - `fit_foreground_templates`
 - `bootstrap_template_amplitudes`
 - `construct_difference_template`
@@ -255,7 +285,9 @@ The current test suite covers:
 - recovery of known template amplitudes
 - Q/U noise realization from requested covariance
 - Monte Carlo sample storage and nonzero uncertainty
+- public `ell`/`m` filter helper construction
 - smoothing and `m`-filter integration
+- explicit filter-array integration through `smooth_and_filter_qu_map`
 - `C1` and `C2` taper behavior for smooth cutoffs
 
 ## Notes
