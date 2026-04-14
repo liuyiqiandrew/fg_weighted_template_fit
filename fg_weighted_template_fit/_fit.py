@@ -183,7 +183,9 @@ def fit_foreground_templates(
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
     mask
-        Optional binary or floating fit mask.
+        Optional binary or floating fit mask. When provided, the same mask is
+        also applied to the target and template input maps before any harmonic
+        smoothing or filtering, then reused in the final weighted solve.
     nest
         If ``True``, maps are treated as NEST ordered during harmonic
         transforms.
@@ -205,12 +207,14 @@ def fit_foreground_templates(
         fwhm_in=target_fwhm_in,
         fwhm_out=fwhm_out,
         filter_config=target_filter,
+        mask=mask,
         nest=nest,
     )
     processed_templates, template_names = build_template_stack(
         template_inputs=template_inputs,
         fwhm_out=fwhm_out,
         default_filter=target_filter,
+        mask=mask,
         nest=nest,
     )
     if template_inputs_rhs is None:
@@ -220,6 +224,7 @@ def fit_foreground_templates(
             template_inputs=template_inputs_rhs,
             fwhm_out=fwhm_out,
             default_filter=target_filter,
+            mask=mask,
             nest=nest,
         )
         if len(template_names_rhs) != len(template_names):

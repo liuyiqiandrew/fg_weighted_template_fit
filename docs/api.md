@@ -135,6 +135,7 @@ smooth_and_filter_qu_map(
     fwhm_out,
     *,
     filter_config=None,
+    mask=None,
     nest=False,
 )
 ```
@@ -145,6 +146,8 @@ Important behavior:
 
 - accepts shape `(2, npix)` or `(npix, 2)`
 - raises if `fwhm_out < fwhm_in`
+- when a mask is supplied, applies it in pixel space before the harmonic
+  transform used for smoothing/filtering
 - uses a single alm pass to combine smoothing and filtering
 - supports both RING and NEST ordering
 
@@ -159,6 +162,7 @@ construct_difference_template(
     fwhm_out,
     *,
     filter_config=None,
+    mask=None,
     nest=False,
 )
 ```
@@ -174,6 +178,7 @@ build_template_stack(
     *,
     fwhm_out,
     default_filter=None,
+    mask=None,
     nest=False,
 )
 ```
@@ -248,23 +253,26 @@ Procedure overview:
 1. The target map is processed first with `smooth_and_filter_qu_map`.
 2. Inside that per-map processing step, any NEST input is reordered to RING in
    pixel space before harmonic transforms.
-3. Beam matching from `target_fwhm_in` to `fwhm_out` and any `ell`-space filter
+3. If `mask` is supplied, that same mask is first applied in pixel space to
+   the target map before any harmonic transform so an apodized edge can reduce
+   truncation ringing.
+4. Beam matching from `target_fwhm_in` to `fwhm_out` and any `ell`-space filter
    are combined into one multiplicative transfer function in harmonic space.
-4. Any `m`-space filter is then applied in harmonic space after the `ell`-space
+5. Any `m`-space filter is then applied in harmonic space after the `ell`-space
    transfer and before transforming back to map space.
-5. The filtered target is transformed back to Q/U pixel space, and converted
+6. The filtered target is transformed back to Q/U pixel space, and converted
    back to NEST ordering if requested.
-6. The left-hand template stack is built next. For each
+7. The left-hand template stack is built next. For each
    `DifferenceTemplateInput`, `map_a_qu` and `map_b_qu` are each processed
-   through the same smooth-and-filter pipeline, using the entry's own
+   through the same masked smooth-and-filter pipeline, using the entry's own
    `filter_config` when present or `target_filter` otherwise.
-7. Each template difference `processed(map_a_qu) - processed(map_b_qu)` is
+8. Each template difference `processed(map_a_qu) - processed(map_b_qu)` is
    formed in pixel space after both maps have already been beam-matched and
    harmonically filtered.
-8. If `template_inputs_rhs` is omitted, the right-hand stack reuses the
+9. If `template_inputs_rhs` is omitted, the right-hand stack reuses the
    already-built left-hand templates. If it is supplied, the right-hand stack is
    built afterward with the same per-template ordering.
-9. Only after all target and template preprocessing is complete does the
+10. Only after all target and template preprocessing is complete does the
    routine enter `weighted_template_gls`, where masks and weights are applied in
    pixel space, non-finite samples are zero-weighted, the weighted normal matrix
    and right-hand side are accumulated, and the amplitudes are solved.
@@ -274,8 +282,8 @@ Space/order notes:
 - Harmonic-space work is limited to the per-map preprocessing inside
   `smooth_and_filter_qu_map`.
 - Pixel-space work covers NEST reordering, template differencing, mask/weight
-  application, normal-matrix accumulation, model construction, and residual
-  formation.
+  application, pre-harmonic apodization, normal-matrix accumulation, model
+  construction, and residual formation.
 - The code never subtracts `map_a_qu - map_b_qu` in harmonic space, and it does
   not apply the fit weights in harmonic space.
 

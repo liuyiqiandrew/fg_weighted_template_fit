@@ -63,7 +63,9 @@ def bootstrap_template_amplitudes(
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
     mask
-        Optional binary or floating fit mask.
+        Optional binary or floating fit mask. When provided, each Monte Carlo
+        draw applies the same mask before any harmonic preprocessing and again
+        in the final weighted solve.
     nest
         If ``True``, maps are treated as NEST ordered during harmonic
         transforms.

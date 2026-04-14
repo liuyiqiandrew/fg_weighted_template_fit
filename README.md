@@ -6,11 +6,13 @@ This repository provides a lightweight alternative to a full inverse-covariance
 pipeline when the fitting problem is already expressed through a user-supplied
 weight map. The core workflow is:
 
-1. Smooth target and template-construction maps to a common beam.
-2. Optionally apply harmonic filtering in `ell` and `m`.
-3. Build foreground templates from map differences such as `353 - 217`.
-4. Estimate template amplitudes with a weighted normal equation.
-5. Bootstrap amplitude uncertainty with Monte Carlo noise realizations built
+1. If a mask is supplied, apodize the target and template-construction maps in
+   pixel space before any harmonic preprocessing.
+2. Smooth target and template-construction maps to a common beam.
+3. Optionally apply harmonic filtering in `ell` and `m`.
+4. Build foreground templates from map differences such as `353 - 217`.
+5. Estimate template amplitudes with a weighted normal equation.
+6. Bootstrap amplitude uncertainty with Monte Carlo noise realizations built
    from per-pixel `QQ`, `UU`, and `QU` covariances.
 
 The main package is [`fg_weighted_template_fit/`](./fg_weighted_template_fit).
@@ -73,6 +75,7 @@ Module responsibilities:
 
 - Difference-template construction for split maps such as dust or synchrotron
 - Common-beam matching from input `fwhm_in` to output `fwhm_out`
+- Optional pre-harmonic masking for apodized sky cuts
 - Optional harmonic filtering in both `ell` and `m`
 - Public helpers for reusable explicit `ell` and `m` filter arrays
 - Smooth `ell` and `m` cutoffs with `C1` or `C2` apodized edges

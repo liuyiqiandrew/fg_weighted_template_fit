@@ -5,7 +5,7 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from ._arrays import as_qu_map
+from ._arrays import as_qu_map, as_weight_map
 from ._types import DifferenceTemplateInput, FloatArray, HarmonicFilter
 
 try:
@@ -101,6 +101,7 @@ def smooth_and_filter_qu_map(
     fwhm_out: float,
     *,
     filter_config: HarmonicFilter | None = None,
+    mask: npt.ArrayLike | None = None,
     nest: bool = False,
 ) -> FloatArray:
     """Smooth and optionally filter a Healpix Q/U map.
@@ -117,6 +118,10 @@ def smooth_and_filter_qu_map(
     filter_config
         Optional harmonic filter configuration. Both the beam matching and the
         harmonic filters are applied in a single alm-domain pass.
+    mask
+        Optional binary or floating mask applied in pixel space before any
+        harmonic transform. This is useful for apodizing map edges before beam
+        smoothing or ``ell``/``m`` filtering.
     nest
         If ``True``, the map is assumed to be in NEST ordering and is converted
         to RING before harmonic transforms, then converted back on output.
@@ -143,9 +148,16 @@ def smooth_and_filter_qu_map(
     _require_healpy()
 
     map_for_transform = qu
+    if mask is not None:
+        # Zero masked pixels before the harmonic transform so an apodized mask
+        # can suppress ringing from the finite lmax truncation.
+        map_for_transform = _apply_harmonic_preprocessing_mask(
+            qu=map_for_transform,
+            mask=mask,
+        )
     if nest:
         map_for_transform = np.asarray(
-            [hp.reorder(component, n2r=True) for component in qu],
+            [hp.reorder(component, n2r=True) for component in map_for_transform],
             dtype=np.float64,
         )
 
@@ -210,6 +222,7 @@ def construct_difference_template(
     fwhm_out: float,
     *,
     filter_config: HarmonicFilter | None = None,
+    mask: npt.ArrayLike | None = None,
     nest: bool = False,
 ) -> FloatArray:
     """Construct a foreground template from the difference of two Q/U maps.
@@ -228,6 +241,9 @@ def construct_difference_template(
         Common output beam FWHM in radians.
     filter_config
         Optional harmonic filter applied after beam matching.
+    mask
+        Optional binary or floating mask applied to both input maps before any
+        harmonic transform.
     nest
         If ``True``, input maps are interpreted as NEST ordered during the
         harmonic transform stage.
@@ -244,6 +260,7 @@ def construct_difference_template(
         fwhm_in=fwhm_in_a,
         fwhm_out=fwhm_out,
         filter_config=filter_config,
+        mask=mask,
         nest=nest,
     )
     map_b_processed = smooth_and_filter_qu_map(
@@ -251,6 +268,7 @@ def construct_difference_template(
         fwhm_in=fwhm_in_b,
         fwhm_out=fwhm_out,
         filter_config=filter_config,
+        mask=mask,
         nest=nest,
     )
     return map_a_processed - map_b_processed
@@ -261,6 +279,7 @@ def build_template_stack(
     *,
     fwhm_out: float,
     default_filter: HarmonicFilter | None = None,
+    mask: npt.ArrayLike | None = None,
     nest: bool = False,
 ) -> tuple[FloatArray, tuple[str, ...]]:
     """Construct a stack of difference templates ready for fitting.
@@ -275,6 +294,9 @@ def build_template_stack(
     default_filter
         Harmonic filter used for template entries that do not define their own
         ``filter_config``.
+    mask
+        Optional binary or floating mask applied to every input map before any
+        harmonic transform.
     nest
         If ``True``, input maps are interpreted as NEST ordered during the
         harmonic transform stage.
@@ -304,6 +326,7 @@ def build_template_stack(
                 fwhm_in_b=template_input.fwhm_in_b,
                 fwhm_out=fwhm_out,
                 filter_config=template_filter,
+                mask=mask,
                 nest=nest,
             )
         )
@@ -313,6 +336,19 @@ def build_template_stack(
         raise ValueError("template_inputs must contain at least one template.")
 
     return np.stack(template_maps, axis=0), tuple(template_names)
+
+
+def _apply_harmonic_preprocessing_mask(
+    *,
+    qu: FloatArray,
+    mask: npt.ArrayLike,
+) -> FloatArray:
+    """Apply a pixel-space mask before any harmonic-domain preprocessing."""
+
+    mask_map = as_weight_map(mask, npix=qu.shape[1], name="mask")
+    safe_mask = np.where(np.isfinite(mask_map), mask_map, 0.0)
+    safe_qu = np.where(np.isfinite(qu), qu, 0.0)
+    return safe_qu * safe_mask
 
 
 def _is_identity_harmonic_operation(
