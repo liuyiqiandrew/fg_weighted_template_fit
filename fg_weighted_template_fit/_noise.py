@@ -64,8 +64,8 @@ def bootstrap_template_amplitudes(
         override this with their own ``filter_config`` values.
     mask
         Optional binary or floating fit mask. When provided, each Monte Carlo
-        draw applies the same mask before any harmonic preprocessing and again
-        in the final weighted solve.
+        draw applies the same mask before any harmonic preprocessing so the
+        apodized edge treatment matches the reference fit.
     nest
         If ``True``, maps are treated as NEST ordered during harmonic
         transforms.

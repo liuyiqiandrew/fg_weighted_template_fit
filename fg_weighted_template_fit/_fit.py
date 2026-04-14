@@ -37,8 +37,10 @@ def weighted_template_gls(
         routine falls back to the same-template solve
         ``(T^T W T)^-1 T^T W m``.
     mask
-        Optional binary or floating mask with the same accepted shapes as
-        ``weight_map``.
+        Optional pixel-domain exclusion mask with the same accepted shapes as
+        ``weight_map``. The mask is converted to binary support before entering
+        the weighted solve, so any finite nonzero value keeps a sample and zero
+        removes it.
     template_names
         Optional names associated with the templates.
 
@@ -83,7 +85,7 @@ def weighted_template_gls(
 
     weights = as_weight_map(weight_map, npix=target.shape[1], name="weight_map")
     if mask is not None:
-        weights = weights * as_weight_map(mask, npix=target.shape[1], name="mask")
+        weights = weights * _as_binary_fit_mask(mask, npix=target.shape[1])
 
     # Non-finite samples are dropped by zeroing their weights and the matching
     # left/right template and target entries, so the normal equations only see
@@ -183,9 +185,10 @@ def fit_foreground_templates(
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
     mask
-        Optional binary or floating fit mask. When provided, the same mask is
-        also applied to the target and template input maps before any harmonic
-        smoothing or filtering, then reused in the final weighted solve.
+        Optional binary or floating mask applied once to the target and
+        template input maps before any harmonic smoothing or filtering. This is
+        intended for pre-apodizing map edges before the harmonic operations,
+        not for modifying the final GLS weights.
     nest
         If ``True``, maps are treated as NEST ordered during harmonic
         transforms.
@@ -236,6 +239,12 @@ def fit_foreground_templates(
         templates_qu=processed_templates,
         templates_rhs_qu=processed_templates_rhs,
         weight_map=weight_map,
-        mask=mask,
         template_names=template_names,
     )
+
+
+def _as_binary_fit_mask(mask: npt.ArrayLike, *, npix: int) -> npt.NDArray[np.float64]:
+    """Convert a general mask definition into binary support for the GLS step."""
+
+    mask_map = as_weight_map(mask, npix=npix, name="mask")
+    return np.where(np.isfinite(mask_map) & (mask_map != 0.0), 1.0, 0.0)

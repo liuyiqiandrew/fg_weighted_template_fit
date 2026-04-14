@@ -218,6 +218,8 @@ Accepted weight shapes:
 Important behavior:
 
 - non-finite target, template, and weight entries are automatically removed
+- if a mask is supplied, the solver converts it to binary support instead of
+  using apodized mask values as extra weights
 - `templates_qu` is the left-hand template stack
 - `templates_rhs_qu` is the right-hand template stack
 - if `templates_rhs_qu` is omitted, the routine falls back to the
@@ -273,16 +275,17 @@ Procedure overview:
    already-built left-hand templates. If it is supplied, the right-hand stack is
    built afterward with the same per-template ordering.
 10. Only after all target and template preprocessing is complete does the
-   routine enter `weighted_template_gls`, where masks and weights are applied in
-   pixel space, non-finite samples are zero-weighted, the weighted normal matrix
-   and right-hand side are accumulated, and the amplitudes are solved.
+   routine enter `weighted_template_gls`, where the user-supplied weights are
+   applied in pixel space, non-finite samples are zero-weighted, the weighted
+   normal matrix and right-hand side are accumulated, and the amplitudes are
+   solved.
 
 Space/order notes:
 
 - Harmonic-space work is limited to the per-map preprocessing inside
   `smooth_and_filter_qu_map`.
-- Pixel-space work covers NEST reordering, template differencing, mask/weight
-  application, pre-harmonic apodization, normal-matrix accumulation, model
+- Pixel-space work covers NEST reordering, template differencing, pre-harmonic
+  apodization, weight application, normal-matrix accumulation, model
   construction, and residual formation.
 - The code never subtracts `map_a_qu - map_b_qu` in harmonic space, and it does
   not apply the fit weights in harmonic space.

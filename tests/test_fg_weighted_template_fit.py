@@ -88,6 +88,24 @@ def test_weighted_template_gls_supports_cross_normal_matrix() -> None:
     )
 
 
+def test_weighted_template_gls_treats_mask_as_binary_support() -> None:
+    """Convert any nonzero fit mask value into unit support inside the solver."""
+
+    template = np.ones((1, 2, 3), dtype=np.float64)
+    target = np.ones((2, 3), dtype=np.float64)
+    mask = np.array([1.0, 0.5, 0.0])
+
+    result = ftf.weighted_template_gls(
+        target_qu=target,
+        templates_qu=template,
+        weight_map=np.ones(3),
+        mask=mask,
+    )
+
+    np.testing.assert_allclose(result.normal_matrix, [[4.0]])
+    np.testing.assert_allclose(result.rhs, [4.0])
+
+
 def test_realize_qu_noise_matches_requested_covariance() -> None:
     """Draw Q/U noise realizations with the requested pixel covariance."""
 
@@ -191,7 +209,7 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
 def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
     monkeypatch,
 ) -> None:
-    """Pass the fit mask into both target and template preprocessing helpers."""
+    """Use the fit mask in preprocessing only, not as a second GLS weight."""
 
     target = np.array(
         [
@@ -211,6 +229,7 @@ def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
 
     target_masks: list[np.ndarray | None] = []
     template_masks: list[np.ndarray | None] = []
+    gls_masks: list[np.ndarray | None] = []
 
     def fake_smooth_and_filter_qu_map(
         qu_map,
@@ -253,10 +272,32 @@ def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
         )
         return templates, template_names
 
+    original_weighted_template_gls = fit_mod.weighted_template_gls
+
+    def fake_weighted_template_gls(
+        target_qu,
+        templates_qu,
+        weight_map,
+        *,
+        templates_rhs_qu=None,
+        mask=None,
+        template_names=None,
+    ):
+        gls_masks.append(None if mask is None else np.asarray(mask, dtype=np.float64))
+        return original_weighted_template_gls(
+            target_qu=target_qu,
+            templates_qu=templates_qu,
+            templates_rhs_qu=templates_rhs_qu,
+            weight_map=weight_map,
+            mask=mask,
+            template_names=template_names,
+        )
+
     monkeypatch.setattr(
         fit_mod, "smooth_and_filter_qu_map", fake_smooth_and_filter_qu_map
     )
     monkeypatch.setattr(fit_mod, "build_template_stack", fake_build_template_stack)
+    monkeypatch.setattr(fit_mod, "weighted_template_gls", fake_weighted_template_gls)
 
     result = ftf.fit_foreground_templates(
         target_qu=target,
@@ -274,6 +315,7 @@ def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
     assert len(template_masks) == 2
     np.testing.assert_allclose(template_masks[0], mask)
     np.testing.assert_allclose(template_masks[1], mask)
+    assert gls_masks == [None]
 
 
 def test_bootstrap_template_amplitudes_show_progress_uses_tqdm(monkeypatch) -> None:
