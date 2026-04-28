@@ -326,6 +326,7 @@ bootstrap_template_amplitudes(
     nest=False,
     rng=None,
     show_progress=False,
+    n_jobs=1,
 )
 ```
 
@@ -351,6 +352,13 @@ Usage note:
   covariance
 - `show_progress=True` displays a standard `tqdm` progress bar over the Monte
   Carlo draws and does not depend on ipywidgets
+- `n_jobs > 1` runs independent Monte Carlo draws with worker threads, which can
+  be used from JupyterLab without multiprocessing setup
+- threaded runs are reproducible for the same `rng` and `n_jobs`, but are not
+  required to match the exact serial sample sequence
+
+The parallel execution design is documented in
+[`parallel_bootstrap.md`](./parallel_bootstrap.md).
 
 ## Data Conventions
 

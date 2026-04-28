@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
-from typing import Sequence
+from typing import Iterable, Sequence, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -20,6 +21,8 @@ try:
 except ImportError:  # pragma: no cover - exercised only when tqdm is unavailable.
     _tqdm = None
 
+_ProgressItem = TypeVar("_ProgressItem")
+
 
 def bootstrap_template_amplitudes(
     target_qu: npt.ArrayLike,
@@ -36,6 +39,7 @@ def bootstrap_template_amplitudes(
     nest: bool = False,
     rng: np.random.Generator | int | None = None,
     show_progress: bool = False,
+    n_jobs: int = 1,
 ) -> BootstrapFitResult:
     """Estimate template amplitude uncertainty with Monte Carlo noise draws.
 
@@ -74,6 +78,10 @@ def bootstrap_template_amplitudes(
     show_progress
         If ``True``, display a standard ``tqdm`` progress bar over the Monte
         Carlo draws. This avoids relying on notebook widget frontends.
+    n_jobs
+        Number of worker threads used for Monte Carlo draws. The default
+        ``1`` preserves the serial execution path. Values greater than one use
+        independent per-draw random generators.
 
     Returns
     -------
@@ -84,13 +92,22 @@ def bootstrap_template_amplitudes(
     Raises
     ------
     ValueError
-        If ``n_mc`` is not positive.
+        If ``n_mc`` or ``n_jobs`` is not positive.
     ImportError
         If ``show_progress`` is ``True`` but ``tqdm`` is not installed.
+
+    Notes
+    -----
+    Threaded execution uses a ``ThreadPoolExecutor`` so the function can be
+    called directly from JupyterLab cells without multiprocessing setup. In
+    threaded mode, one deterministic child seed is generated per draw before
+    work is submitted, and each worker owns its local random generator.
     """
 
     if n_mc <= 0:
         raise ValueError("n_mc must be a positive integer.")
+    if n_jobs <= 0:
+        raise ValueError("n_jobs must be a positive integer.")
 
     reference_fit = fit_foreground_templates(
         target_qu=target_qu,
@@ -105,6 +122,7 @@ def bootstrap_template_amplitudes(
     )
 
     rng_obj = coerce_rng(rng)
+    target = as_qu_map(target_qu, name="target_qu")
     target_noise_cov_qu = as_covariance(
         target_noise_cov,
         npix=reference_fit.processed_target_qu.shape[1],
@@ -112,42 +130,70 @@ def bootstrap_template_amplitudes(
     )
 
     samples = np.zeros((n_mc, len(reference_fit.template_names)), dtype=np.float64)
-    draw_indices = _wrap_progress(
-        range(n_mc),
-        show_progress=show_progress,
-        total=n_mc,
-        desc="Bootstrap MC",
-    )
-    for draw_index in draw_indices:
-        # Realize noise on the native-resolution inputs first so every draw goes
-        # through the same smoothing/filtering/template-construction pipeline.
-        noisy_target = as_qu_map(target_qu, name="target_qu") + realize_qu_noise(
-            target_noise_cov_qu,
-            rng=rng_obj,
+    if n_jobs == 1:
+        draw_indices = _wrap_progress(
+            range(n_mc),
+            show_progress=show_progress,
+            total=n_mc,
+            desc="Bootstrap MC",
         )
-        noisy_templates = tuple(
-            _realize_noisy_template_input(template_input, rng_obj)
-            for template_input in template_inputs
-        )
-        if template_inputs_rhs is None:
-            noisy_templates_rhs = None
-        else:
-            noisy_templates_rhs = tuple(
-                _realize_noisy_template_input(template_input, rng_obj)
-                for template_input in template_inputs_rhs
+        for draw_index in draw_indices:
+            draw_index, amplitudes = _fit_bootstrap_draw(
+                draw_index=draw_index,
+                target_qu=target,
+                target_noise_cov_qu=target_noise_cov_qu,
+                target_fwhm_in=target_fwhm_in,
+                template_inputs=template_inputs,
+                weight_map=weight_map,
+                fwhm_out=fwhm_out,
+                template_inputs_rhs=template_inputs_rhs,
+                target_filter=target_filter,
+                mask=mask,
+                nest=nest,
+                rng=rng_obj,
             )
-        draw_fit = fit_foreground_templates(
-            target_qu=noisy_target,
-            target_fwhm_in=target_fwhm_in,
-            template_inputs=noisy_templates,
-            weight_map=weight_map,
-            fwhm_out=fwhm_out,
-            template_inputs_rhs=noisy_templates_rhs,
-            target_filter=target_filter,
-            mask=mask,
-            nest=nest,
+            samples[draw_index] = amplitudes
+    else:
+        if show_progress:
+            _require_tqdm()
+        # Derive all child seeds before starting worker threads. This keeps the
+        # parent RNG single-threaded and gives each draw an independent stream.
+        draw_seeds: npt.NDArray[np.int64] = rng_obj.integers(
+            0,
+            np.iinfo(np.int64).max,
+            size=n_mc,
+            dtype=np.int64,
         )
-        samples[draw_index] = draw_fit.amplitudes
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            futures = [
+                executor.submit(
+                    _fit_bootstrap_draw,
+                    draw_index=draw_index,
+                    target_qu=target,
+                    target_noise_cov_qu=target_noise_cov_qu,
+                    target_fwhm_in=target_fwhm_in,
+                    template_inputs=template_inputs,
+                    weight_map=weight_map,
+                    fwhm_out=fwhm_out,
+                    template_inputs_rhs=template_inputs_rhs,
+                    target_filter=target_filter,
+                    mask=mask,
+                    nest=nest,
+                    rng=int(draw_seed),
+                )
+                for draw_index, draw_seed in enumerate(draw_seeds)
+            ]
+            completed_draws = _wrap_progress(
+                as_completed(futures),
+                show_progress=show_progress,
+                total=n_mc,
+                desc="Bootstrap MC",
+            )
+            for future in completed_draws:
+                # Futures complete out of order, so each worker returns the row
+                # where its amplitudes should be stored.
+                draw_index, amplitudes = future.result()
+                samples[draw_index] = amplitudes
 
     ddof = 1 if n_mc > 1 else 0
     return BootstrapFitResult(
@@ -157,6 +203,95 @@ def bootstrap_template_amplitudes(
         amplitude_std=np.std(samples, axis=0, ddof=ddof),
         template_names=reference_fit.template_names,
     )
+
+
+def _fit_bootstrap_draw(
+    *,
+    draw_index: int,
+    target_qu: FloatArray,
+    target_noise_cov_qu: FloatArray,
+    target_fwhm_in: float,
+    template_inputs: Sequence[DifferenceTemplateInput],
+    weight_map: npt.ArrayLike,
+    fwhm_out: float,
+    template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
+    target_filter: HarmonicFilter | None,
+    mask: npt.ArrayLike | None,
+    nest: bool,
+    rng: np.random.Generator | int,
+) -> tuple[int, FloatArray]:
+    """Run one noisy bootstrap refit.
+
+    Parameters
+    ----------
+    draw_index
+        Row index for this realization in the output sample matrix.
+    target_qu
+        Native-resolution target Q/U map with shape ``(2, npix)``.
+    target_noise_cov_qu
+        Native-resolution target covariance with shape ``(3, npix)`` in
+        ``QQ, UU, QU`` order.
+    target_fwhm_in
+        Beam FWHM of ``target_qu`` in radians.
+    template_inputs
+        Left-hand template definitions used for the fit.
+    weight_map
+        Diagonal pixel weight map passed through to ``fit_foreground_templates``.
+    fwhm_out
+        Common output beam FWHM in radians.
+    template_inputs_rhs
+        Optional right-hand template definitions for the cross normal matrix.
+    target_filter
+        Optional harmonic filter applied to the target map and default
+        template preprocessing.
+    mask
+        Optional preprocessing mask.
+    nest
+        If ``True``, maps are treated as NEST ordered during harmonic
+        transforms.
+    rng
+        Per-draw random generator or seed. Threaded callers pass independent
+        seeds; serial callers pass the shared serial generator.
+
+    Returns
+    -------
+    tuple of int and ndarray
+        ``(draw_index, amplitudes)`` where ``amplitudes`` has shape
+        ``(n_template,)``.
+    """
+
+    rng_obj = coerce_rng(rng)
+
+    # Realize noise on the native-resolution inputs first so every draw goes
+    # through the same smoothing/filtering/template-construction pipeline.
+    noisy_target = target_qu + realize_qu_noise(
+        target_noise_cov_qu,
+        rng=rng_obj,
+    )
+    noisy_templates = tuple(
+        _realize_noisy_template_input(template_input, rng_obj)
+        for template_input in template_inputs
+    )
+    if template_inputs_rhs is None:
+        noisy_templates_rhs = None
+    else:
+        noisy_templates_rhs = tuple(
+            _realize_noisy_template_input(template_input, rng_obj)
+            for template_input in template_inputs_rhs
+        )
+
+    draw_fit = fit_foreground_templates(
+        target_qu=noisy_target,
+        target_fwhm_in=target_fwhm_in,
+        template_inputs=noisy_templates,
+        weight_map=weight_map,
+        fwhm_out=fwhm_out,
+        template_inputs_rhs=noisy_templates_rhs,
+        target_filter=target_filter,
+        mask=mask,
+        nest=nest,
+    )
+    return draw_index, draw_fit.amplitudes
 
 
 def realize_qu_noise(
@@ -248,19 +383,25 @@ def _realize_noisy_template_input(
 
 
 def _wrap_progress(
-    iterable: Sequence[int] | range,
+    iterable: Iterable[_ProgressItem],
     *,
     show_progress: bool,
     total: int,
     desc: str,
-):
-    """Optionally wrap an iterable in a tqdm progress bar."""
+) -> Iterable[_ProgressItem]:
+    """Return an iterable, optionally wrapped in a tqdm progress bar."""
 
     if not show_progress:
         return iterable
+    _require_tqdm()
+    return _tqdm(iterable, total=total, desc=desc, unit="draw")
+
+
+def _require_tqdm() -> None:
+    """Raise the standard progress error when tqdm is unavailable."""
+
     if _tqdm is None:
         raise ImportError(
             "show_progress=True requires tqdm. Install tqdm or pass "
             "show_progress=False."
         )
-    return _tqdm(iterable, total=total, desc=desc, unit="draw")

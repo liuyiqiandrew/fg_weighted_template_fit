@@ -193,6 +193,7 @@ bootstrap = ftf.bootstrap_template_amplitudes(
     target_filter=filter_config,
     rng=1234,
     show_progress=True,
+    n_jobs=4,
 )
 
 print(bootstrap.amplitude_mean)
@@ -202,7 +203,11 @@ print(bootstrap.amplitude_samples.shape)
 
 Pass `show_progress=True` to show a standard `tqdm` progress bar in notebooks
 or terminals while the Monte Carlo draws are running, without relying on
-ipywidgets.
+ipywidgets. Pass `n_jobs > 1` to run independent Monte Carlo draws in worker
+threads; this can be called directly from JupyterLab.
+
+See [`docs/parallel_bootstrap.md`](./docs/parallel_bootstrap.md) for the
+parallel execution and random-number design.
 
 In the example above, the reported `bootstrap.amplitude_std` includes:
 
