@@ -9,6 +9,74 @@ import fg_weighted_template_fit._filters as filters_mod
 import fg_weighted_template_fit._noise as noise_mod
 
 
+def _make_bootstrap_concurrency_problem() -> dict[str, object]:
+    """Build a tiny bootstrap problem that avoids healpy-dependent paths.
+
+    Returns
+    -------
+    dict
+        Keyword arguments accepted by ``bootstrap_template_amplitudes``. The
+        target and templates are native-resolution Q/U maps with zero beam
+        widths, so the fit stays on the pure NumPy path.
+    """
+
+    npix = 8
+    dust = np.array(
+        [
+            [1.0, 0.4, -0.3, 0.8, -0.1, 0.6, 0.2, -0.5],
+            [0.2, -0.6, 0.7, 0.1, 0.5, -0.4, 0.3, 0.9],
+        ],
+        dtype=np.float64,
+    )
+    sync = np.array(
+        [
+            [-0.2, 0.7, 0.5, -0.4, 0.9, 0.1, -0.6, 0.3],
+            [0.8, 0.1, -0.5, 0.6, -0.3, 0.4, 0.2, -0.7],
+        ],
+        dtype=np.float64,
+    )
+    target = 1.35 * dust - 0.45 * sync
+    target_noise_cov = np.repeat(
+        np.array([[0.01], [0.015], [0.002]], dtype=np.float64),
+        npix,
+        axis=1,
+    )
+    template_noise_cov = np.repeat(
+        np.array([[0.004], [0.006], [0.001]], dtype=np.float64),
+        npix,
+        axis=1,
+    )
+    template_inputs = (
+        ftf.DifferenceTemplateInput(
+            map_a_qu=dust,
+            map_b_qu=np.zeros_like(dust),
+            fwhm_in_a=0.0,
+            fwhm_in_b=0.0,
+            noise_cov_a=template_noise_cov,
+            noise_cov_b=template_noise_cov,
+            name="dust",
+        ),
+        ftf.DifferenceTemplateInput(
+            map_a_qu=sync,
+            map_b_qu=np.zeros_like(sync),
+            fwhm_in_a=0.0,
+            fwhm_in_b=0.0,
+            noise_cov_a=template_noise_cov,
+            noise_cov_b=template_noise_cov,
+            name="sync",
+        ),
+    )
+
+    return {
+        "target_qu": target,
+        "target_noise_cov": target_noise_cov,
+        "target_fwhm_in": 0.0,
+        "template_inputs": template_inputs,
+        "weight_map": np.ones(npix),
+        "fwhm_out": 0.0,
+    }
+
+
 def test_weighted_template_gls_recovers_known_amplitudes() -> None:
     """Recover exact amplitudes for the standard weighted template solve."""
 
@@ -361,6 +429,128 @@ def test_bootstrap_template_amplitudes_show_progress_uses_tqdm(monkeypatch) -> N
 
     assert result.amplitude_samples.shape == (3, 1)
     assert calls == [{"total": 3, "desc": "Bootstrap MC", "unit": "draw"}]
+
+
+def test_bootstrap_template_amplitudes_n_jobs_one_matches_default_serial() -> None:
+    """Keep explicit single-worker bootstrap equivalent to the default path."""
+
+    problem = _make_bootstrap_concurrency_problem()
+
+    default = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=5,
+        rng=9876,
+    )
+    explicit = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=5,
+        rng=9876,
+        n_jobs=1,
+    )
+
+    np.testing.assert_allclose(explicit.amplitude_samples, default.amplitude_samples)
+    np.testing.assert_allclose(explicit.amplitude_mean, default.amplitude_mean)
+    np.testing.assert_allclose(explicit.amplitude_std, default.amplitude_std)
+
+
+def test_bootstrap_template_amplitudes_threaded_is_reproducible_for_seed() -> None:
+    """Use independent per-draw RNG streams so threaded output is reproducible."""
+
+    problem = _make_bootstrap_concurrency_problem()
+
+    first = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=6,
+        rng=12345,
+        n_jobs=2,
+    )
+    second = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=6,
+        rng=12345,
+        n_jobs=2,
+    )
+
+    np.testing.assert_allclose(first.amplitude_samples, second.amplitude_samples)
+    np.testing.assert_allclose(first.amplitude_mean, second.amplitude_mean)
+    np.testing.assert_allclose(first.amplitude_std, second.amplitude_std)
+
+
+def test_bootstrap_template_amplitudes_threaded_returns_valid_samples() -> None:
+    """Return finite MC samples with the expected threaded output shape."""
+
+    problem = _make_bootstrap_concurrency_problem()
+
+    result = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=6,
+        rng=4321,
+        n_jobs=2,
+    )
+
+    assert result.amplitude_samples.shape == (6, 2)
+    assert np.all(np.isfinite(result.amplitude_samples))
+    assert np.all(np.isfinite(result.amplitude_mean))
+    assert np.all(np.isfinite(result.amplitude_std))
+
+
+def test_bootstrap_template_amplitudes_rejects_nonpositive_n_jobs() -> None:
+    """Reject invalid worker counts before starting a bootstrap run."""
+
+    problem = _make_bootstrap_concurrency_problem()
+
+    for n_jobs in (0, -1):
+        with pytest.raises(ValueError, match="n_jobs"):
+            ftf.bootstrap_template_amplitudes(
+                **problem,
+                n_mc=1,
+                rng=2468,
+                n_jobs=n_jobs,
+            )
+
+
+def test_bootstrap_template_amplitudes_threaded_show_progress_uses_tqdm(
+    monkeypatch,
+) -> None:
+    """Wrap completed threaded draws in tqdm when progress reporting is enabled."""
+
+    problem = _make_bootstrap_concurrency_problem()
+    calls: list[dict[str, object]] = []
+
+    def fake_tqdm(iterable, **kwargs):
+        calls.append(kwargs)
+        return iterable
+
+    monkeypatch.setattr(noise_mod, "_tqdm", fake_tqdm)
+
+    result = ftf.bootstrap_template_amplitudes(
+        **problem,
+        n_mc=3,
+        rng=1357,
+        show_progress=True,
+        n_jobs=2,
+    )
+
+    assert result.amplitude_samples.shape == (3, 2)
+    assert calls == [{"total": 3, "desc": "Bootstrap MC", "unit": "draw"}]
+
+
+def test_bootstrap_template_amplitudes_threaded_show_progress_requires_tqdm(
+    monkeypatch,
+) -> None:
+    """Raise the standard progress error before threaded progress reporting."""
+
+    problem = _make_bootstrap_concurrency_problem()
+    monkeypatch.setattr(noise_mod, "_tqdm", None)
+
+    with pytest.raises(ImportError, match="requires tqdm"):
+        ftf.bootstrap_template_amplitudes(
+            **problem,
+            n_mc=2,
+            rng=9753,
+            show_progress=True,
+            n_jobs=2,
+        )
 
 
 def test_bootstrap_template_amplitudes_show_progress_requires_tqdm(
