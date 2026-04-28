@@ -109,6 +109,37 @@ class WeightedFitResult:
 
 
 @dataclass(frozen=True)
+class MultiMaskFitResult:
+    """Result of fitting one processed map/template set with multiple weights.
+
+    Attributes
+    ----------
+    fit_names
+        Names of the fitted regions in the order supplied by the input weight
+        mapping.
+    fit_results
+        Per-region weighted fit results keyed by ``fit_names``.
+    template_names
+        Names associated with the template axis.
+    processed_target_qu
+        Master-mask-processed target Q/U map with shape ``(2, npix)``.
+    processed_templates_qu
+        Master-mask-processed left-hand template stack with shape
+        ``(n_template, 2, npix)``.
+    processed_templates_rhs_qu
+        Master-mask-processed right-hand template stack with shape
+        ``(n_template, 2, npix)``.
+    """
+
+    fit_names: tuple[str, ...]
+    fit_results: dict[str, WeightedFitResult]
+    template_names: tuple[str, ...]
+    processed_target_qu: FloatArray
+    processed_templates_qu: FloatArray
+    processed_templates_rhs_qu: FloatArray
+
+
+@dataclass(frozen=True)
 class BootstrapFitResult:
     """Monte Carlo uncertainty estimate for weighted template amplitudes."""
 
@@ -116,4 +147,34 @@ class BootstrapFitResult:
     amplitude_samples: FloatArray
     amplitude_mean: FloatArray
     amplitude_std: FloatArray
+    template_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MultiMaskBootstrapResult:
+    """Monte Carlo uncertainty estimate for multiple weighted fits.
+
+    Attributes
+    ----------
+    reference_fit
+        Deterministic multi-mask fit to the input maps before noise draws.
+    amplitude_samples
+        Fitted amplitudes with shape ``(n_mc, n_fit_mask, n_template)``.
+    amplitude_mean
+        Mean amplitudes over Monte Carlo draws with shape
+        ``(n_fit_mask, n_template)``.
+    amplitude_std
+        Sample standard deviation over Monte Carlo draws with shape
+        ``(n_fit_mask, n_template)``.
+    fit_names
+        Names associated with the fit-mask axis.
+    template_names
+        Names associated with the template axis.
+    """
+
+    reference_fit: MultiMaskFitResult
+    amplitude_samples: FloatArray
+    amplitude_mean: FloatArray
+    amplitude_std: FloatArray
+    fit_names: tuple[str, ...]
     template_names: tuple[str, ...]

@@ -80,6 +80,32 @@ Fields:
 - `amplitude_std`
 - `template_names`
 
+### `MultiMaskFitResult`
+
+Container returned by the multi-mask weighted fit.
+
+Fields:
+
+- `fit_names`
+- `fit_results`
+- `template_names`
+- `processed_target_qu`
+- `processed_templates_qu`
+- `processed_templates_rhs_qu`
+
+### `MultiMaskBootstrapResult`
+
+Container returned by the multi-mask Monte Carlo uncertainty routine.
+
+Fields:
+
+- `reference_fit`
+- `amplitude_samples`
+- `amplitude_mean`
+- `amplitude_std`
+- `fit_names`
+- `template_names`
+
 ## Main Functions
 
 ### `build_ell_filter`
@@ -290,6 +316,43 @@ Space/order notes:
 - The code never subtracts `map_a_qu - map_b_qu` in harmonic space, and it does
   not apply the fit weights in harmonic space.
 
+### `fit_foreground_templates_multi_mask`
+
+```python
+fit_foreground_templates_multi_mask(
+    target_qu,
+    target_fwhm_in,
+    template_inputs,
+    weight_maps,
+    fwhm_out,
+    *,
+    master_mask,
+    template_inputs_rhs=None,
+    target_filter=None,
+    master_support_mask=None,
+    master_support_threshold=0.0,
+    nest=False,
+)
+```
+
+High-level entry point for fitting multiple named regions after one common
+harmonic preprocessing pass.
+
+Important behavior:
+
+- `weight_maps` is a mapping such as `{"m1": mask1, "m2": mask2}`; insertion
+  order defines the `fit_names` order
+- `master_mask` is applied before smoothing/filtering for the target and all
+  template input maps
+- after smoothing/filtering, processed maps are multiplied by binary master
+  support, not by the apodized mask values again
+- default support is `isfinite(master_mask) & (master_mask >
+  master_support_threshold)`
+- if `master_support_mask` is supplied, finite nonzero pixels define support
+  and override the threshold-derived support
+- each named fit calls `weighted_template_gls` with its own `weight_map` and no
+  GLS `mask`, so fitting masks act as weights only
+
 ### `realize_qu_noise`
 
 ```python
@@ -359,6 +422,42 @@ Usage note:
 
 The parallel execution design is documented in
 [`parallel_bootstrap.md`](./parallel_bootstrap.md).
+
+### `bootstrap_template_amplitudes_multi_mask`
+
+```python
+bootstrap_template_amplitudes_multi_mask(
+    target_qu,
+    target_noise_cov,
+    target_fwhm_in,
+    template_inputs,
+    weight_maps,
+    fwhm_out,
+    *,
+    n_mc,
+    master_mask,
+    template_inputs_rhs=None,
+    target_filter=None,
+    master_support_mask=None,
+    master_support_threshold=0.0,
+    nest=False,
+    rng=None,
+    show_progress=False,
+    n_jobs=1,
+)
+```
+
+Runs paired Monte Carlo amplitude estimation for every named weight map.
+
+Important behavior:
+
+- each draw realizes one noisy target/template set
+- that draw is smoothed/filtered once under `master_mask`
+- every named weight map is fit against the same processed noisy realization
+- `amplitude_samples` has shape `(n_mc, n_fit_mask, n_template)`
+- `fit_names` and `template_names` label the second and third sample axes
+- progress and threaded execution follow the same rules as
+  `bootstrap_template_amplitudes`
 
 ## Data Conventions
 
