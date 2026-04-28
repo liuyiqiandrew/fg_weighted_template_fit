@@ -58,9 +58,3 @@ The pipeline has two layers: a **harmonic preprocessing** layer and a **pixel-sp
 - Per-pixel covariance order: `QQ, UU, QU` with shape `(3, npix)`.
 - All beam FWHM values are in **radians**.
 - Healpix default ordering is RING; pass `nest=True` for NEST.
-
-# Code style
-- Use type hinting
-- Write numpy-style docstrings for functions and comment the code
-- Use black to format code
-- Provide unit test for functions
