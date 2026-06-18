@@ -40,6 +40,19 @@ right-hand stack is supplied, the package falls back to the same-template solve
 a_hat = (T^T W T)^(-1) T^T W m
 ```
 
+The data-projection vector `T_left^T W m` can also be decoupled from the
+normal-matrix factors by supplying a third template stack `d_3`
+(`templates_data_qu` / `template_inputs_data`). With three distinct stacks
+`d_1 = T_left`, `d_2 = T_right`, and `d_3`, the estimator becomes
+
+```text
+a_hat = (d_1^T W d_2)^(-1) d_3^T W m
+```
+
+where `d_3` enters only the right-hand vector and not the normal matrix. When
+`d_3` is omitted it defaults to `d_1`, recovering the forms above; supplying only
+`template_inputs` makes all three stacks equal.
+
 This is still not the fully optimal generalized least-squares estimator you
 would get from a full inverse covariance matrix, but it is often a useful fast
 estimator when a scalar or diagonal weight definition is already available and
@@ -60,7 +73,9 @@ fg_weighted_template_fit/
 │   ├── _noise.py
 │   └── _types.py
 └── tests/
-    └── test_fg_weighted_template_fit.py
+    ├── test_filters.py
+    ├── test_fit.py
+    └── test_noise.py
 ```
 
 Module responsibilities:
@@ -219,6 +234,68 @@ If template noise covariances are omitted, the Monte Carlo spread will only
 reflect target-map noise and will therefore underestimate the total uncertainty
 associated with noisy templates.
 
+## Multi-mask Fits
+
+`fit_foreground_templates_multi_mask` fits the same target and templates
+under several named weight maps in a single call. The target and templates
+are smoothed and filtered once with a shared `master_mask`, then each named
+weight map drives an independent weighted GLS solve. This keeps the harmonic
+preprocessing identical across all fitted regions, so per-region amplitude
+differences come from the per-region weighting and not from boundary-driven
+leakage or ringing.
+
+```python
+master_mask = build_apodized_union(mask1, mask2)  # any apodized (npix,) float
+
+result = ftf.fit_foreground_templates_multi_mask(
+    target_qu=target_qu,
+    target_fwhm_in=target_fwhm_rad,
+    template_inputs=[dust_split_a],
+    template_inputs_rhs=[dust_split_b],
+    weight_maps={"low": mask1, "high": mask2},
+    master_mask=master_mask,
+    fwhm_out=common_fwhm_rad,
+    target_filter=filter_config,
+)
+
+print(result.fit_names)
+for name in result.fit_names:
+    print(name, result.fit_results[name].amplitudes)
+```
+
+`bootstrap_template_amplitudes_multi_mask` runs the same pattern through
+Monte Carlo draws, sharing one noisy realization across all named fits per
+draw. The amplitudes for different regions are therefore paired, which is
+the right default when differencing them.
+
+```python
+bootstrap = ftf.bootstrap_template_amplitudes_multi_mask(
+    target_qu=target_qu,
+    target_noise_cov=target_noise_cov,
+    target_fwhm_in=target_fwhm_rad,
+    template_inputs=[dust_split_a],
+    template_inputs_rhs=[dust_split_b],
+    weight_maps={"low": mask1, "high": mask2},
+    master_mask=master_mask,
+    fwhm_out=common_fwhm_rad,
+    n_mc=200,
+    target_filter=filter_config,
+    rng=1234,
+    show_progress=True,
+    n_jobs=4,
+)
+
+# amplitude_samples has shape (n_mc, n_fit_mask, n_template).
+print(bootstrap.amplitude_samples.shape)
+print(bootstrap.amplitude_mean)
+print(bootstrap.amplitude_std)
+```
+
+See [`docs/multi_mask.md`](./docs/multi_mask.md) for how to construct the
+master mask, how it composes multiplicatively with each per-fit
+`weight_maps[r]`, the `master_support_threshold` and `master_support_mask`
+knobs, and the paired Monte Carlo design.
+
 ## Filtering Options
 
 `HarmonicFilter` supports two styles of harmonic filtering:
@@ -270,13 +347,17 @@ Most users will interact with:
 - `build_ell_filter`
 - `build_m_filter`
 - `fit_foreground_templates`
+- `fit_foreground_templates_multi_mask`
 - `bootstrap_template_amplitudes`
+- `bootstrap_template_amplitudes_multi_mask`
 - `construct_difference_template`
 - `smooth_and_filter_qu_map`
 
 If you want the cross-template estimator specifically, pass the left-hand split
 through `template_inputs` and the independent right-hand split through
-`template_inputs_rhs`.
+`template_inputs_rhs`. To additionally decouple the data-projection vector
+`d_3^T W m`, pass a third split through `template_inputs_data`; when omitted it
+defaults to the left-hand stack.
 
 A more detailed API reference is available in [`docs/api.md`](./docs/api.md).
 

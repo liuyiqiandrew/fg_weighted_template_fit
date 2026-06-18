@@ -178,6 +178,7 @@ def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
         weight_map,
         *,
         templates_rhs_qu=None,
+        templates_data_qu=None,
         mask=None,
         template_names=None,
     ):
@@ -186,6 +187,7 @@ def test_fit_foreground_templates_passes_mask_to_preprocessing_helpers(
             target_qu=target_qu,
             templates_qu=templates_qu,
             templates_rhs_qu=templates_rhs_qu,
+            templates_data_qu=templates_data_qu,
             weight_map=weight_map,
             mask=mask,
             template_names=template_names,
@@ -258,6 +260,55 @@ def test_fit_foreground_templates_multi_mask_applies_binary_master_support() -> 
     )
     np.testing.assert_allclose(result.fit_results["m1"].amplitudes, [2.5])
     np.testing.assert_allclose(result.fit_results["m2"].amplitudes, [2.5])
+
+
+def test_multi_mask_exact_difference_template_recovers_same_amplitude() -> None:
+    """Recover the same amplitude on every mask for an exact 353-217 template."""
+
+    planck_353 = np.array(
+        [
+            [5.0, -2.0, 1.5, 0.8, -1.2, 2.4, 3.1, -0.6],
+            [1.0, 3.0, -2.5, 0.4, 1.7, -1.1, 0.9, 2.2],
+        ],
+        dtype=np.float64,
+    )
+    planck_217 = np.array(
+        [
+            [1.0, -0.5, 0.2, 0.1, -0.4, 0.8, 1.0, -0.2],
+            [0.2, 0.7, -0.4, 0.1, 0.5, -0.3, 0.2, 0.6],
+        ],
+        dtype=np.float64,
+    )
+    amplitude_true = 0.037
+    target = amplitude_true * (planck_353 - planck_217)
+    template_input = ftf.DifferenceTemplateInput(
+        map_a_qu=planck_353,
+        map_b_qu=planck_217,
+        fwhm_in_a=0.0,
+        fwhm_in_b=0.0,
+        name="dust",
+    )
+
+    result = ftf.fit_foreground_templates_multi_mask(
+        target_qu=target,
+        target_fwhm_in=0.0,
+        template_inputs=(template_input,),
+        weight_maps={
+            "low": np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.5, 0.0, 0.0]),
+            "high": np.array([0.0, 0.0, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0]),
+            "master": np.ones(planck_353.shape[1]),
+        },
+        fwhm_out=0.0,
+        master_mask=np.ones(planck_353.shape[1]),
+    )
+
+    for fit_name in result.fit_names:
+        np.testing.assert_allclose(
+            result.fit_results[fit_name].amplitudes,
+            [amplitude_true],
+            rtol=0.0,
+            atol=1e-14,
+        )
 
 
 def test_fit_foreground_templates_multi_mask_accepts_explicit_master_support() -> None:
@@ -419,6 +470,7 @@ def test_fit_foreground_templates_multi_mask_uses_master_mask_for_preprocessing(
         weight_map,
         *,
         templates_rhs_qu=None,
+        templates_data_qu=None,
         mask=None,
         template_names=None,
     ):
@@ -428,6 +480,7 @@ def test_fit_foreground_templates_multi_mask_uses_master_mask_for_preprocessing(
             target_qu=target_qu,
             templates_qu=templates_qu,
             templates_rhs_qu=templates_rhs_qu,
+            templates_data_qu=templates_data_qu,
             weight_map=weight_map,
             mask=mask,
             template_names=template_names,
@@ -459,3 +512,262 @@ def test_fit_foreground_templates_multi_mask_uses_master_mask_for_preprocessing(
     assert gls_masks == [None, None]
     np.testing.assert_allclose(gls_weights[0], np.vstack([weight_m1, weight_m1]))
     np.testing.assert_allclose(gls_weights[1], np.vstack([weight_m2, weight_m2]))
+
+
+def test_weighted_template_gls_supports_data_projection_vector() -> None:
+    """Use a third stack ``d_3`` only in the right-hand vector ``d_3^T W m``."""
+
+    npix = 6
+    dust_lhs = np.array(
+        [
+            [1.0, 0.3, -0.2, 0.6, 0.1, -0.4],
+            [0.4, -0.2, 0.5, 0.1, -0.3, 0.7],
+        ]
+    )
+    sync_lhs = np.array(
+        [
+            [0.2, -0.4, 0.8, -0.1, 0.5, 0.3],
+            [-0.5, 0.6, 0.1, -0.2, 0.4, -0.3],
+        ]
+    )
+    dust_rhs = np.array(
+        [
+            [0.8, 0.2, -0.1, 0.5, 0.0, -0.2],
+            [0.3, -0.1, 0.4, 0.2, -0.2, 0.5],
+        ]
+    )
+    sync_rhs = np.array(
+        [
+            [0.1, -0.2, 0.7, 0.0, 0.3, 0.2],
+            [-0.4, 0.5, 0.2, -0.1, 0.2, -0.2],
+        ]
+    )
+    dust_data = np.array(
+        [
+            [0.6, -0.3, 0.2, 0.4, -0.5, 0.1],
+            [0.2, 0.5, -0.4, 0.3, 0.1, -0.6],
+        ]
+    )
+    sync_data = np.array(
+        [
+            [-0.1, 0.4, 0.3, -0.2, 0.6, -0.5],
+            [0.5, -0.3, 0.1, 0.2, -0.4, 0.3],
+        ]
+    )
+    weight = np.array([1.0, 3.0, 0.5, 2.0, 4.0, 1.5])
+    target = np.array(
+        [
+            [0.7, -0.4, 0.2, 0.9, -0.1, 0.5],
+            [0.3, 0.6, -0.5, 0.1, 0.4, -0.2],
+        ]
+    )
+
+    lhs = np.stack([dust_lhs, sync_lhs], axis=0)
+    rhs = np.stack([dust_rhs, sync_rhs], axis=0)
+    data = np.stack([dust_data, sync_data], axis=0)
+
+    result = ftf.weighted_template_gls(
+        target_qu=target,
+        templates_qu=lhs,
+        templates_rhs_qu=rhs,
+        templates_data_qu=data,
+        weight_map=weight,
+        template_names=("dust", "sync"),
+    )
+
+    # Reproduce the estimator (d_1^T W d_2)^-1 d_3^T W m independently. The
+    # weight map is broadcast across Q/U exactly as as_weight_map does.
+    weight_qu = np.vstack([weight, weight])
+    normal_matrix = np.array(
+        [
+            [np.sum(lhs[i] * weight_qu * rhs[j]) for j in range(2)]
+            for i in range(2)
+        ]
+    )
+    rhs_vector = np.array([np.sum(data[i] * weight_qu * target) for i in range(2)])
+    expected = np.linalg.solve(normal_matrix, rhs_vector)
+
+    np.testing.assert_allclose(result.amplitudes, expected, atol=1e-12)
+    np.testing.assert_allclose(result.normal_matrix, normal_matrix, atol=1e-12)
+    np.testing.assert_allclose(result.rhs, rhs_vector, atol=1e-12)
+    np.testing.assert_allclose(result.processed_templates_data_qu, data, atol=1e-12)
+
+
+def test_weighted_template_gls_data_vector_defaults_to_left_stack() -> None:
+    """Omitting ``templates_data_qu`` reuses the left stack for the vector."""
+
+    npix = 6
+    dust_lhs = np.array(
+        [
+            [1.0, 0.3, -0.2, 0.6, 0.1, -0.4],
+            [0.4, -0.2, 0.5, 0.1, -0.3, 0.7],
+        ]
+    )
+    sync_lhs = np.array(
+        [
+            [0.2, -0.4, 0.8, -0.1, 0.5, 0.3],
+            [-0.5, 0.6, 0.1, -0.2, 0.4, -0.3],
+        ]
+    )
+    dust_rhs = np.array(
+        [
+            [0.8, 0.2, -0.1, 0.5, 0.0, -0.2],
+            [0.3, -0.1, 0.4, 0.2, -0.2, 0.5],
+        ]
+    )
+    sync_rhs = np.array(
+        [
+            [0.1, -0.2, 0.7, 0.0, 0.3, 0.2],
+            [-0.4, 0.5, 0.2, -0.1, 0.2, -0.2],
+        ]
+    )
+    weight = np.linspace(0.5, 2.5, npix)
+    target = np.array(
+        [
+            [0.7, -0.4, 0.2, 0.9, -0.1, 0.5],
+            [0.3, 0.6, -0.5, 0.1, 0.4, -0.2],
+        ]
+    )
+    lhs = np.stack([dust_lhs, sync_lhs], axis=0)
+    rhs = np.stack([dust_rhs, sync_rhs], axis=0)
+
+    default = ftf.weighted_template_gls(
+        target_qu=target,
+        templates_qu=lhs,
+        templates_rhs_qu=rhs,
+        weight_map=weight,
+    )
+    explicit = ftf.weighted_template_gls(
+        target_qu=target,
+        templates_qu=lhs,
+        templates_rhs_qu=rhs,
+        templates_data_qu=lhs,
+        weight_map=weight,
+    )
+
+    np.testing.assert_allclose(default.amplitudes, explicit.amplitudes, atol=1e-12)
+    np.testing.assert_allclose(default.rhs, explicit.rhs, atol=1e-12)
+    np.testing.assert_allclose(default.processed_templates_data_qu, lhs, atol=1e-12)
+
+
+def test_fit_foreground_templates_threads_data_projection_templates() -> None:
+    """Build ``d_3`` from its own template inputs for the right-hand vector."""
+
+    npix = 6
+    weight = np.array([1.0, 2.0, 0.5, 1.5, 3.0, 0.8])
+    d1_a = np.array(
+        [
+            [1.0, 0.5, -0.2, 0.3, 0.8, -0.4],
+            [0.2, -0.3, 0.6, 1.2, -0.5, 0.1],
+        ]
+    )
+    d1_b = np.zeros_like(d1_a)
+    d2_a = np.array(
+        [
+            [0.9, 0.4, -0.1, 0.4, 0.7, -0.3],
+            [0.3, -0.2, 0.5, 1.0, -0.4, 0.2],
+        ]
+    )
+    d2_b = np.zeros_like(d2_a)
+    d3_a = np.array(
+        [
+            [0.6, -0.3, 0.2, 0.4, -0.5, 0.1],
+            [0.2, 0.5, -0.4, 0.3, 0.1, -0.6],
+        ]
+    )
+    d3_b = np.zeros_like(d3_a)
+    target = np.array(
+        [
+            [0.7, -0.4, 0.2, 0.9, -0.1, 0.5],
+            [0.3, 0.6, -0.5, 0.1, 0.4, -0.2],
+        ]
+    )
+
+    def _input(map_a, map_b):
+        return ftf.DifferenceTemplateInput(
+            map_a_qu=map_a,
+            map_b_qu=map_b,
+            fwhm_in_a=0.0,
+            fwhm_in_b=0.0,
+            name="dust",
+        )
+
+    result = ftf.fit_foreground_templates(
+        target_qu=target,
+        target_fwhm_in=0.0,
+        template_inputs=(_input(d1_a, d1_b),),
+        template_inputs_rhs=(_input(d2_a, d2_b),),
+        template_inputs_data=(_input(d3_a, d3_b),),
+        weight_map=weight,
+        fwhm_out=0.0,
+    )
+
+    weight_qu = np.vstack([weight, weight])
+    d1, d2, d3 = d1_a - d1_b, d2_a - d2_b, d3_a - d3_b
+    expected = np.sum(d3 * weight_qu * target) / np.sum(d1 * weight_qu * d2)
+
+    np.testing.assert_allclose(result.amplitudes, [expected], atol=1e-12)
+    np.testing.assert_allclose(result.processed_templates_data_qu[0], d3, atol=1e-12)
+
+
+def test_fit_foreground_templates_multi_mask_threads_data_projection_templates() -> None:
+    """Apply the third stack in every per-mask solve of the multi-mask fit."""
+
+    npix = 6
+    d1_a = np.array(
+        [
+            [1.0, 0.5, -0.2, 0.3, 0.8, -0.4],
+            [0.2, -0.3, 0.6, 1.2, -0.5, 0.1],
+        ]
+    )
+    d2_a = np.array(
+        [
+            [0.9, 0.4, -0.1, 0.4, 0.7, -0.3],
+            [0.3, -0.2, 0.5, 1.0, -0.4, 0.2],
+        ]
+    )
+    d3_a = np.array(
+        [
+            [0.6, -0.3, 0.2, 0.4, -0.5, 0.1],
+            [0.2, 0.5, -0.4, 0.3, 0.1, -0.6],
+        ]
+    )
+    target = np.array(
+        [
+            [0.7, -0.4, 0.2, 0.9, -0.1, 0.5],
+            [0.3, 0.6, -0.5, 0.1, 0.4, -0.2],
+        ]
+    )
+
+    def _input(map_a):
+        return ftf.DifferenceTemplateInput(
+            map_a_qu=map_a,
+            map_b_qu=np.zeros_like(map_a),
+            fwhm_in_a=0.0,
+            fwhm_in_b=0.0,
+            name="dust",
+        )
+
+    weight_maps = {
+        "low": np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.5]),
+        "high": np.array([0.0, 0.0, 0.5, 1.0, 1.0, 1.0]),
+    }
+
+    result = ftf.fit_foreground_templates_multi_mask(
+        target_qu=target,
+        target_fwhm_in=0.0,
+        template_inputs=(_input(d1_a),),
+        template_inputs_rhs=(_input(d2_a),),
+        template_inputs_data=(_input(d3_a),),
+        weight_maps=weight_maps,
+        fwhm_out=0.0,
+        master_mask=np.ones(npix),
+    )
+
+    for fit_name, weight in weight_maps.items():
+        weight_qu = np.vstack([weight, weight])
+        expected = np.sum(d3_a * weight_qu * target) / np.sum(d1_a * weight_qu * d2_a)
+        np.testing.assert_allclose(
+            result.fit_results[fit_name].amplitudes, [expected], atol=1e-12
+        )
+    np.testing.assert_allclose(result.processed_templates_data_qu[0], d3_a, atol=1e-12)

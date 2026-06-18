@@ -444,3 +444,60 @@ def test_bootstrap_template_amplitudes_show_progress_requires_tqdm(
             n_mc=2,
             show_progress=True,
         )
+
+
+def test_bootstrap_template_amplitudes_accepts_data_projection_templates() -> None:
+    """Realize noise on the third stack and return well-shaped samples."""
+
+    npix = 8
+    dust = np.array(
+        [
+            [1.0, 0.4, -0.3, 0.8, -0.1, 0.6, 0.2, -0.5],
+            [0.2, -0.6, 0.7, 0.1, 0.5, -0.4, 0.3, 0.9],
+        ],
+        dtype=np.float64,
+    )
+    dust_lhs = dust
+    dust_rhs = dust + 0.05
+    dust_data = dust - 0.05
+    target = 1.35 * dust
+    target_noise_cov = np.repeat(
+        np.array([[0.01], [0.015], [0.002]], dtype=np.float64), npix, axis=1
+    )
+    template_cov = np.repeat(
+        np.array([[0.004], [0.006], [0.001]], dtype=np.float64), npix, axis=1
+    )
+
+    def _input(map_a):
+        return ftf.DifferenceTemplateInput(
+            map_a_qu=map_a,
+            map_b_qu=np.zeros_like(map_a),
+            fwhm_in_a=0.0,
+            fwhm_in_b=0.0,
+            noise_cov_a=template_cov,
+            noise_cov_b=template_cov,
+            name="dust",
+        )
+
+    bootstrap = ftf.bootstrap_template_amplitudes(
+        target_qu=target,
+        target_noise_cov=target_noise_cov,
+        target_fwhm_in=0.0,
+        template_inputs=(_input(dust_lhs),),
+        weight_map=np.ones(npix),
+        fwhm_out=0.0,
+        n_mc=6,
+        template_inputs_rhs=(_input(dust_rhs),),
+        template_inputs_data=(_input(dust_data),),
+        rng=2024,
+    )
+
+    assert bootstrap.template_names == ("dust",)
+    assert bootstrap.amplitude_samples.shape == (6, 1)
+    assert np.all(np.isfinite(bootstrap.amplitude_samples))
+    assert np.all(bootstrap.amplitude_std > 0.0)
+    np.testing.assert_allclose(
+        bootstrap.reference_fit.processed_templates_data_qu[0],
+        dust_data,
+        atol=1e-12,
+    )
