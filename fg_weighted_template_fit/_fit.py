@@ -191,6 +191,7 @@ def fit_foreground_templates(
     weight_map: npt.ArrayLike,
     fwhm_out: float,
     *,
+    target_beam_window: npt.ArrayLike | None = None,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
     template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
@@ -211,6 +212,9 @@ def fit_foreground_templates(
         Diagonal pixel weight map used in the fit.
     fwhm_out
         Common output beam FWHM in radians applied to target and templates.
+    target_beam_window
+        Optional input beam transfer function ``B_ell`` for the target map. When
+        supplied, it replaces the Gaussian beam implied by ``target_fwhm_in``.
     template_inputs_rhs
         Optional sequence of right-hand template definitions. When supplied,
         the fit uses separate left- and right-hand template stacks in the
@@ -249,6 +253,7 @@ def fit_foreground_templates(
         target_qu,
         fwhm_in=target_fwhm_in,
         fwhm_out=fwhm_out,
+        beam_window_in=target_beam_window,
         filter_config=target_filter,
         mask=mask,
         nest=nest,
@@ -306,6 +311,7 @@ def fit_foreground_templates_multi_mask(
     fwhm_out: float,
     *,
     master_mask: npt.ArrayLike,
+    target_beam_window: npt.ArrayLike | None = None,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
     template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
@@ -340,6 +346,9 @@ def fit_foreground_templates_multi_mask(
     master_mask
         Binary or apodized mask applied to every input map before harmonic
         smoothing/filtering.
+    target_beam_window
+        Optional input beam transfer function ``B_ell`` for the target map. When
+        supplied, it replaces the Gaussian beam implied by ``target_fwhm_in``.
     template_inputs_rhs
         Optional sequence of right-hand template definitions for the cross
         normal matrix.
@@ -400,6 +409,7 @@ def fit_foreground_templates_multi_mask(
         fwhm_out=fwhm_out,
         master_mask_map=master_mask_map,
         master_support=master_support,
+        target_beam_window=target_beam_window,
         template_inputs_rhs=template_inputs_rhs,
         template_inputs_data=template_inputs_data,
         target_filter=target_filter,
@@ -517,6 +527,7 @@ def _preprocess_under_master_mask(
     fwhm_out: float,
     master_mask_map: FloatArray,
     master_support: FloatArray,
+    target_beam_window: npt.ArrayLike | None,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
     template_inputs_data: Sequence[DifferenceTemplateInput] | None,
     target_filter: HarmonicFilter | None,
@@ -538,6 +549,9 @@ def _preprocess_under_master_mask(
         Harmonic preprocessing mask normalized to shape ``(2, npix)``.
     master_support
         Binary support map with shape ``(2, npix)`` applied after filtering.
+    target_beam_window
+        Optional input beam transfer function for ``target_qu``. When omitted,
+        the target input beam is treated as Gaussian with ``target_fwhm_in``.
     template_inputs_rhs
         Optional right-hand template definitions.
     template_inputs_data
@@ -560,6 +574,7 @@ def _preprocess_under_master_mask(
         target_qu,
         fwhm_in=target_fwhm_in,
         fwhm_out=fwhm_out,
+        beam_window_in=target_beam_window,
         filter_config=target_filter,
         mask=master_mask_map,
         nest=nest,

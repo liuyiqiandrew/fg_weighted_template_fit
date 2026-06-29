@@ -80,6 +80,12 @@ class DifferenceTemplateInput:
         omitted, the default filter passed to the fit routine is used.
     name
         Human-readable name for the template.
+    beam_window_a
+        Optional input beam transfer function ``B_ell`` for ``map_a_qu``. When
+        supplied, this replaces the Gaussian beam implied by ``fwhm_in_a``.
+    beam_window_b
+        Optional input beam transfer function ``B_ell`` for ``map_b_qu``. When
+        supplied, this replaces the Gaussian beam implied by ``fwhm_in_b``.
     """
 
     map_a_qu: npt.ArrayLike
@@ -90,6 +96,8 @@ class DifferenceTemplateInput:
     noise_cov_b: npt.ArrayLike | None = None
     filter_config: HarmonicFilter | None = None
     name: str = "template"
+    beam_window_a: npt.ArrayLike | None = None
+    beam_window_b: npt.ArrayLike | None = None
 
 
 @dataclass(frozen=True)

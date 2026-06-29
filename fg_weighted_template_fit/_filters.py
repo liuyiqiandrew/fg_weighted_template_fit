@@ -100,6 +100,7 @@ def smooth_and_filter_qu_map(
     fwhm_in: float,
     fwhm_out: float,
     *,
+    beam_window_in: npt.ArrayLike | None = None,
     filter_config: HarmonicFilter | None = None,
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
@@ -113,8 +114,14 @@ def smooth_and_filter_qu_map(
     fwhm_in
         Beam FWHM of the input map in radians.
     fwhm_out
-        Target beam FWHM in radians. The routine applies additional Gaussian
-        smoothing, so ``fwhm_out`` must be at least ``fwhm_in``.
+        Target Gaussian beam FWHM in radians. When ``beam_window_in`` is
+        omitted, the routine applies additional Gaussian smoothing, so
+        ``fwhm_out`` must be at least ``fwhm_in``.
+    beam_window_in
+        Optional input beam transfer function indexed by multipole ``ell``.
+        When supplied, this replaces the Gaussian input beam implied by
+        ``fwhm_in`` while the output beam remains the Gaussian defined by
+        ``fwhm_out``.
     filter_config
         Optional harmonic filter configuration. Both the beam matching and the
         harmonic filters are applied in a single alm-domain pass.
@@ -139,10 +146,19 @@ def smooth_and_filter_qu_map(
     qu = as_qu_map(qu_map, name="qu_map")
     filter_config = filter_config or HarmonicFilter()
 
-    if fwhm_out < fwhm_in and not np.isclose(fwhm_out, fwhm_in):
+    if (
+        beam_window_in is None
+        and fwhm_out < fwhm_in
+        and not np.isclose(fwhm_out, fwhm_in)
+    ):
         raise ValueError("fwhm_out must be greater than or equal to fwhm_in.")
 
-    if _is_identity_harmonic_operation(fwhm_in, fwhm_out, filter_config):
+    if _is_identity_harmonic_operation(
+        fwhm_in,
+        fwhm_out,
+        filter_config,
+        beam_window_in=beam_window_in,
+    ):
         return qu.copy()
 
     _require_healpy()
@@ -163,7 +179,17 @@ def smooth_and_filter_qu_map(
 
     npix = map_for_transform.shape[1]
     nside = hp.npix2nside(npix)
-    lmax = _resolve_lmax(nside=nside, filter_config=filter_config)
+    lmax = _resolve_lmax(
+        nside=nside,
+        filter_config=filter_config,
+        beam_window_in=beam_window_in,
+    )
+    if beam_window_in is not None:
+        _as_beam_window(
+            beam_window_in,
+            lmax=lmax,
+            name="beam_window_in",
+        )
 
     # Healpy's polarized transform works on T/Q/U. We prepend a zero-temperature
     # map, transform once, and only keep the polarization alms.
@@ -181,6 +207,7 @@ def smooth_and_filter_qu_map(
         fwhm_in=fwhm_in,
         fwhm_out=fwhm_out,
         filter_config=filter_config,
+        beam_window_in=beam_window_in,
     )
     alm_e = hp.almxfl(alm_e, ell_transfer, inplace=False)
     alm_b = hp.almxfl(alm_b, ell_transfer, inplace=False)
@@ -221,6 +248,8 @@ def construct_difference_template(
     fwhm_in_b: float,
     fwhm_out: float,
     *,
+    beam_window_a: npt.ArrayLike | None = None,
+    beam_window_b: npt.ArrayLike | None = None,
     filter_config: HarmonicFilter | None = None,
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
@@ -239,6 +268,12 @@ def construct_difference_template(
         Beam FWHM of ``map_b_qu`` in radians.
     fwhm_out
         Common output beam FWHM in radians.
+    beam_window_a
+        Optional input beam transfer function for ``map_a_qu``. When supplied,
+        it replaces the Gaussian beam implied by ``fwhm_in_a``.
+    beam_window_b
+        Optional input beam transfer function for ``map_b_qu``. When supplied,
+        it replaces the Gaussian beam implied by ``fwhm_in_b``.
     filter_config
         Optional harmonic filter applied after beam matching.
     mask
@@ -259,6 +294,7 @@ def construct_difference_template(
         map_a_qu,
         fwhm_in=fwhm_in_a,
         fwhm_out=fwhm_out,
+        beam_window_in=beam_window_a,
         filter_config=filter_config,
         mask=mask,
         nest=nest,
@@ -267,6 +303,7 @@ def construct_difference_template(
         map_b_qu,
         fwhm_in=fwhm_in_b,
         fwhm_out=fwhm_out,
+        beam_window_in=beam_window_b,
         filter_config=filter_config,
         mask=mask,
         nest=nest,
@@ -325,6 +362,8 @@ def build_template_stack(
                 fwhm_in_a=template_input.fwhm_in_a,
                 fwhm_in_b=template_input.fwhm_in_b,
                 fwhm_out=fwhm_out,
+                beam_window_a=template_input.beam_window_a,
+                beam_window_b=template_input.beam_window_b,
                 filter_config=template_filter,
                 mask=mask,
                 nest=nest,
@@ -355,6 +394,8 @@ def _is_identity_harmonic_operation(
     fwhm_in: float,
     fwhm_out: float,
     filter_config: HarmonicFilter,
+    *,
+    beam_window_in: npt.ArrayLike | None = None,
 ) -> bool:
     """Check whether smoothing/filtering would leave the map unchanged.
 
@@ -366,6 +407,9 @@ def _is_identity_harmonic_operation(
         Requested output beam FWHM in radians.
     filter_config
         Harmonic filter configuration.
+    beam_window_in
+        Optional custom input beam. Any supplied custom beam requires a harmonic
+        transfer, even when the Gaussian FWHM values match.
 
     Returns
     -------
@@ -379,8 +423,10 @@ def _is_identity_harmonic_operation(
     no_m_filter = filter_config.m_filter is None
     no_ell_cutoff = filter_config.ell_cutoff is None
     no_m_cutoff = filter_config.m_cutoff is None
+    no_custom_beam = beam_window_in is None
     return (
         no_beam_change
+        and no_custom_beam
         and no_ell_filter
         and no_m_filter
         and no_ell_cutoff
@@ -404,7 +450,12 @@ def _require_healpy() -> None:
         )
 
 
-def _resolve_lmax(nside: int, filter_config: HarmonicFilter) -> int:
+def _resolve_lmax(
+    nside: int,
+    filter_config: HarmonicFilter,
+    *,
+    beam_window_in: npt.ArrayLike | None = None,
+) -> int:
     """Resolve the harmonic truncation consistent with map and filter support.
 
     Parameters
@@ -413,6 +464,9 @@ def _resolve_lmax(nside: int, filter_config: HarmonicFilter) -> int:
         Healpix ``nside`` of the working map.
     filter_config
         Harmonic filter configuration.
+    beam_window_in
+        Optional custom input beam transfer function. Its support constrains
+        the maximum multipole in the same way as explicit filters.
 
     Returns
     -------
@@ -433,6 +487,14 @@ def _resolve_lmax(nside: int, filter_config: HarmonicFilter) -> int:
         max_supported = min(
             max_supported,
             len(np.asarray(filter_config.ell_filter)) - 1,
+        )
+    if beam_window_in is not None:
+        beam_window_array = np.asarray(beam_window_in, dtype=np.float64)
+        if beam_window_array.ndim != 1:
+            raise ValueError("beam_window_in must be a 1D beam transfer function.")
+        max_supported = min(
+            max_supported,
+            beam_window_array.shape[0] - 1,
         )
     if filter_config.m_filter is not None:
         max_supported = min(
@@ -460,6 +522,7 @@ def _build_ell_transfer(
     fwhm_in: float,
     fwhm_out: float,
     filter_config: HarmonicFilter,
+    beam_window_in: npt.ArrayLike | None = None,
 ) -> FloatArray:
     """Assemble the full multipole transfer function for beam/filter matching.
 
@@ -473,6 +536,9 @@ def _build_ell_transfer(
         Output beam FWHM in radians.
     filter_config
         Harmonic filter configuration.
+    beam_window_in
+        Optional custom input beam transfer function. When supplied, the beam
+        transfer is the Gaussian output beam divided by this window.
 
     Returns
     -------
@@ -482,10 +548,19 @@ def _build_ell_transfer(
     """
 
     ells = np.arange(lmax + 1, dtype=np.float64)
-    sigma_in = _fwhm_to_sigma(fwhm_in)
     sigma_out = _fwhm_to_sigma(fwhm_out)
-    sigma_extra_sq = np.maximum(sigma_out**2 - sigma_in**2, 0.0)
-    transfer = np.exp(-0.5 * ells * (ells + 1.0) * sigma_extra_sq)
+    output_beam = np.exp(-0.5 * ells * (ells + 1.0) * sigma_out**2)
+    if beam_window_in is None:
+        sigma_in = _fwhm_to_sigma(fwhm_in)
+        sigma_extra_sq = np.maximum(sigma_out**2 - sigma_in**2, 0.0)
+        transfer = np.exp(-0.5 * ells * (ells + 1.0) * sigma_extra_sq)
+    else:
+        input_beam = _as_beam_window(
+            beam_window_in,
+            lmax=lmax,
+            name="beam_window_in",
+        )
+        transfer = output_beam / input_beam
 
     if filter_config.ell_filter is not None:
         ell_filter_array = np.asarray(filter_config.ell_filter, dtype=np.float64)
@@ -504,6 +579,28 @@ def _build_ell_transfer(
         )
 
     return transfer
+
+
+def _as_beam_window(
+    beam_window: npt.ArrayLike,
+    *,
+    lmax: int,
+    name: str,
+) -> FloatArray:
+    """Validate a custom input beam window through ``lmax``."""
+
+    array = np.asarray(beam_window, dtype=np.float64)
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be a 1D beam transfer function.")
+    if array.shape[0] < lmax + 1:
+        raise ValueError(f"{name} must have length at least lmax + 1.")
+
+    window = array[: lmax + 1]
+    if not np.all(np.isfinite(window)):
+        raise ValueError(f"{name} must be finite through lmax.")
+    if np.any(window <= 0.0):
+        raise ValueError(f"{name} must be strictly positive through lmax.")
+    return window
 
 
 def _apply_m_filter_inplace(

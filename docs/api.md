@@ -44,12 +44,17 @@ Fields:
 - `noise_cov_b`
 - `filter_config`
 - `name`
+- `beam_window_a`
+- `beam_window_b`
 
 Usage notes:
 
 - The template is built as `processed(map_a_qu) - processed(map_b_qu)`.
 - Noise covariances are optional, but they are needed for Monte Carlo
   uncertainty propagation through template construction.
+- `beam_window_a` and `beam_window_b` are optional input beam transfer functions
+  indexed by `ell`; when supplied, they replace the Gaussian beam implied by
+  `fwhm_in_a` or `fwhm_in_b`.
 
 ### `WeightedFitResult`
 
@@ -162,6 +167,7 @@ smooth_and_filter_qu_map(
     fwhm_in,
     fwhm_out,
     *,
+    beam_window_in=None,
     filter_config=None,
     mask=None,
     nest=False,
@@ -173,7 +179,12 @@ Applies beam matching and optional harmonic filtering to a Q/U Healpix map.
 Important behavior:
 
 - accepts shape `(2, npix)` or `(npix, 2)`
-- raises if `fwhm_out < fwhm_in`
+- raises if `fwhm_out < fwhm_in` when no custom input beam is supplied
+- when `beam_window_in` is supplied, uses `B_out_ell / beam_window_in[ell]`
+  instead of Gaussian input-beam matching; `B_out_ell` is the Gaussian output
+  beam from `fwhm_out`
+- custom beam windows must be one-dimensional, finite, and strictly positive
+  through the resolved `lmax`
 - when a mask is supplied, applies it in pixel space before the harmonic
   transform used for smoothing/filtering
 - uses a single alm pass to combine smoothing and filtering
@@ -189,6 +200,8 @@ construct_difference_template(
     fwhm_in_b,
     fwhm_out,
     *,
+    beam_window_a=None,
+    beam_window_b=None,
     filter_config=None,
     mask=None,
     nest=False,
@@ -197,6 +210,9 @@ construct_difference_template(
 
 Builds a foreground template from two Q/U maps after matching both to the same
 output resolution and filter definition.
+
+When `beam_window_a` or `beam_window_b` is supplied, that map's custom `B_ell`
+replaces the Gaussian input beam implied by its `fwhm_in_*` value.
 
 ### `build_template_stack`
 
@@ -270,6 +286,7 @@ fit_foreground_templates(
     weight_map,
     fwhm_out,
     *,
+    target_beam_window=None,
     template_inputs_rhs=None,
     template_inputs_data=None,
     target_filter=None,
@@ -295,8 +312,10 @@ Procedure overview:
 3. If `mask` is supplied, that same mask is first applied in pixel space to
    the target map before any harmonic transform so an apodized edge can reduce
    truncation ringing.
-4. Beam matching from `target_fwhm_in` to `fwhm_out` and any `ell`-space filter
-   are combined into one multiplicative transfer function in harmonic space.
+4. Beam matching and any `ell`-space filter are combined into one multiplicative
+   transfer function in harmonic space. By default this matches the Gaussian
+   input beam `target_fwhm_in` to `fwhm_out`; if `target_beam_window` is
+   supplied, it uses the custom target `B_ell` instead of `target_fwhm_in`.
 5. Any `m`-space filter is then applied in harmonic space after the `ell`-space
    transfer and before transforming back to map space.
 6. The filtered target is transformed back to Q/U pixel space, and converted
@@ -340,6 +359,7 @@ fit_foreground_templates_multi_mask(
     fwhm_out,
     *,
     master_mask,
+    target_beam_window=None,
     template_inputs_rhs=None,
     template_inputs_data=None,
     target_filter=None,
@@ -358,6 +378,8 @@ Important behavior:
   order defines the `fit_names` order
 - `master_mask` is applied before smoothing/filtering for the target and all
   template input maps
+- `target_beam_window` and template-entry `beam_window_a` / `beam_window_b`
+  follow the same custom input-beam rules as the single-mask fit
 - after smoothing/filtering, processed maps are multiplied by binary master
   support, not by the apodized mask values again
 - default support is `isfinite(master_mask) & (master_mask >
@@ -400,6 +422,7 @@ bootstrap_template_amplitudes(
     fwhm_out,
     *,
     n_mc,
+    target_beam_window=None,
     template_inputs_rhs=None,
     template_inputs_data=None,
     target_filter=None,
@@ -429,6 +452,8 @@ Usage note:
 
 - `amplitude_std` includes template-map uncertainty when the corresponding
   `DifferenceTemplateInput` entries provide `noise_cov_a` and `noise_cov_b`
+- target and template custom beam windows are preserved for the reference fit
+  and every Monte Carlo draw
 - if those template noise covariances are omitted, the Monte Carlo spread only
   reflects target-map noise and any uncertainty induced by the supplied target
   covariance
@@ -455,6 +480,7 @@ bootstrap_template_amplitudes_multi_mask(
     *,
     n_mc,
     master_mask,
+    target_beam_window=None,
     template_inputs_rhs=None,
     template_inputs_data=None,
     target_filter=None,
@@ -478,12 +504,15 @@ Important behavior:
 - `fit_names` and `template_names` label the second and third sample axes
 - progress and threaded execution follow the same rules as
   `bootstrap_template_amplitudes`
+- custom target and template input beams follow the same rules as
+  `fit_foreground_templates_multi_mask`
 
 ## Data Conventions
 
 - Q/U maps may be passed as `(2, npix)` or `(npix, 2)`.
 - Template stacks may be passed as `(n_template, 2, npix)` or
   `(n_template, npix, 2)`.
+- Custom beam windows are one-dimensional arrays indexed by `ell`.
 - Per-pixel covariance must be ordered as `QQ`, `UU`, `QU`.
 - FWHM values are always in radians.
 
