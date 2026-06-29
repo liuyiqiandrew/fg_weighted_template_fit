@@ -221,6 +221,7 @@ weighted_template_gls(
     weight_map,
     *,
     templates_rhs_qu=None,
+    templates_data_qu=None,
     mask=None,
     template_names=None,
 )
@@ -229,10 +230,11 @@ weighted_template_gls(
 Solves the weighted normal equations
 
 ```text
-(T_left^T W T_right) a = T_left^T W m
+(d_1^T W d_2) a = d_3^T W m
 ```
 
-with Q/U pixels stacked into one data vector.
+with Q/U pixels stacked into one data vector, where `d_1 = templates_qu`,
+`d_2 = templates_rhs_qu`, and `d_3 = templates_data_qu`.
 
 Accepted weight shapes:
 
@@ -246,10 +248,12 @@ Important behavior:
 - non-finite target, template, and weight entries are automatically removed
 - if a mask is supplied, the solver converts it to binary support instead of
   using apodized mask values as extra weights
-- `templates_qu` is the left-hand template stack
-- `templates_rhs_qu` is the right-hand template stack
+- `templates_qu` is the left-hand template stack `d_1`
+- `templates_rhs_qu` is the right-hand template stack `d_2`
 - if `templates_rhs_qu` is omitted, the routine falls back to the
   same-template normal matrix
+- `templates_data_qu` is the data-projection stack `d_3` used only in the
+  right-hand vector `d_3^T W m`; if omitted, it defaults to `d_1`
 - if the normal matrix is singular, the routine falls back to a pseudoinverse
 
 ### `fit_foreground_templates`
@@ -263,6 +267,7 @@ fit_foreground_templates(
     fwhm_out,
     *,
     template_inputs_rhs=None,
+    template_inputs_data=None,
     target_filter=None,
     mask=None,
     nest=False,
@@ -274,6 +279,8 @@ High-level entry point that:
 - smooths and filters the target map
 - constructs the left-hand template stack
 - optionally constructs an independent right-hand template stack
+- optionally constructs an independent data-projection stack for the right-hand
+  vector
 - solves for the weighted template amplitudes
 
 Procedure overview:
@@ -299,7 +306,9 @@ Procedure overview:
    harmonically filtered.
 9. If `template_inputs_rhs` is omitted, the right-hand stack reuses the
    already-built left-hand templates. If it is supplied, the right-hand stack is
-   built afterward with the same per-template ordering.
+   built afterward with the same per-template ordering. The same rule applies to
+   `template_inputs_data`: when omitted the data-projection stack `d_3` defaults
+   to the left-hand templates, otherwise it is built independently.
 10. Only after all target and template preprocessing is complete does the
    routine enter `weighted_template_gls`, where the user-supplied weights are
    applied in pixel space, non-finite samples are zero-weighted, the weighted
@@ -328,6 +337,7 @@ fit_foreground_templates_multi_mask(
     *,
     master_mask,
     template_inputs_rhs=None,
+    template_inputs_data=None,
     target_filter=None,
     master_support_mask=None,
     master_support_threshold=0.0,
@@ -384,6 +394,7 @@ bootstrap_template_amplitudes(
     *,
     n_mc,
     template_inputs_rhs=None,
+    template_inputs_data=None,
     target_filter=None,
     mask=None,
     nest=False,
@@ -397,7 +408,8 @@ Runs Monte Carlo amplitude estimation by:
 
 1. realizing noise for the target map
 2. realizing noise for the maps used to construct each left-hand template
-3. optionally realizing noise for the independent right-hand template stack
+3. optionally realizing noise for the independent right-hand template stack and
+   the independent data-projection stack
 4. rebuilding templates at the target output resolution
 5. reapplying harmonic filtering
 6. refitting amplitudes
@@ -437,6 +449,7 @@ bootstrap_template_amplitudes_multi_mask(
     n_mc,
     master_mask,
     template_inputs_rhs=None,
+    template_inputs_data=None,
     target_filter=None,
     master_support_mask=None,
     master_support_threshold=0.0,

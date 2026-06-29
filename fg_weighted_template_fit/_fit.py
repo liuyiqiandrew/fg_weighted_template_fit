@@ -23,6 +23,7 @@ def weighted_template_gls(
     weight_map: npt.ArrayLike,
     *,
     templates_rhs_qu: npt.ArrayLike | None = None,
+    templates_data_qu: npt.ArrayLike | None = None,
     mask: npt.ArrayLike | None = None,
     template_names: Sequence[str] | None = None,
 ) -> WeightedFitResult:
@@ -43,6 +44,13 @@ def weighted_template_gls(
         becomes ``(T_left^T W T_right)^-1 T_left^T W m``. When omitted, the
         routine falls back to the same-template solve
         ``(T^T W T)^-1 T^T W m``.
+    templates_data_qu
+        Optional data-projection template stack ``d_3``. When supplied, the
+        estimator becomes ``(d_1^T W d_2)^-1 d_3^T W m`` where ``d_1`` is
+        ``templates_qu`` and ``d_2`` is ``templates_rhs_qu`` (or ``d_1`` when the
+        latter is omitted). The data stack enters only the right-hand vector
+        ``d_3^T W m`` and not the normal matrix. When omitted, ``d_3`` defaults to
+        ``d_1``, reproducing the ``d_1^T W m`` projection.
     mask
         Optional pixel-domain exclusion mask with the same accepted shapes as
         ``weight_map``. The mask is converted to binary support before entering
@@ -76,6 +84,13 @@ def weighted_template_gls(
             templates_rhs_qu,
             name="templates_rhs_qu",
         )
+    if templates_data_qu is None:
+        templates_data = templates_lhs.copy()
+    else:
+        templates_data = as_template_stack(
+            templates_data_qu,
+            name="templates_data_qu",
+        )
 
     if templates_lhs.shape[1:] != target.shape:
         raise ValueError(
@@ -85,9 +100,17 @@ def weighted_template_gls(
         raise ValueError(
             "Each right-hand template must have the same Q/U shape as the target map."
         )
+    if templates_data.shape[1:] != target.shape:
+        raise ValueError(
+            "Each data-projection template must have the same Q/U shape as the target map."
+        )
     if templates_lhs.shape[0] != templates_rhs.shape[0]:
         raise ValueError(
             "Left and right template stacks must contain the same number of templates."
+        )
+    if templates_lhs.shape[0] != templates_data.shape[0]:
+        raise ValueError(
+            "Left and data-projection template stacks must contain the same number of templates."
         )
 
     weights = as_weight_map(weight_map, npix=target.shape[1], name="weight_map")
@@ -95,27 +118,29 @@ def weighted_template_gls(
         weights = weights * _as_binary_fit_mask(mask, npix=target.shape[1])
 
     # Non-finite samples are dropped by zeroing their weights and the matching
-    # left/right template and target entries, so the normal equations only see
-    # valid samples on every side of the cross-estimator.
+    # left/right/data template and target entries, so the normal equations only
+    # see valid samples on every side of the cross-estimator.
     valid = np.isfinite(target)
     valid &= np.isfinite(weights)
     valid &= np.isfinite(templates_lhs).all(axis=0)
     valid &= np.isfinite(templates_rhs).all(axis=0)
+    valid &= np.isfinite(templates_data).all(axis=0)
 
     weights = np.where(valid, weights, 0.0)
     target = np.where(valid, target, 0.0)
     templates_lhs = np.where(valid[None, :, :], templates_lhs, 0.0)
     templates_rhs = np.where(valid[None, :, :], templates_rhs, 0.0)
+    templates_data = np.where(valid[None, :, :], templates_data, 0.0)
 
     n_template = templates_lhs.shape[0]
     normal_matrix = np.zeros((n_template, n_template), dtype=np.float64)
     rhs = np.zeros(n_template, dtype=np.float64)
 
     # Build the cross normal matrix one template pair at a time so the algebra
-    # stays close to the estimator definition T_left^T W T_right and
-    # T_left^T W m.
+    # stays close to the estimator definition d_1^T W d_2 for the matrix and
+    # d_3^T W m for the right-hand vector.
     for i in range(n_template):
-        rhs[i] = weighted_inner_product(templates_lhs[i], target, weights)
+        rhs[i] = weighted_inner_product(templates_data[i], target, weights)
         for j in range(n_template):
             value = weighted_inner_product(
                 templates_lhs[i],
@@ -153,6 +178,7 @@ def weighted_template_gls(
         processed_target_qu=target,
         processed_templates_qu=templates_lhs,
         processed_templates_rhs_qu=templates_rhs,
+        processed_templates_data_qu=templates_data,
         template_names=names,
         solver=solver,
     )
@@ -166,6 +192,7 @@ def fit_foreground_templates(
     fwhm_out: float,
     *,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
@@ -188,6 +215,11 @@ def fit_foreground_templates(
         Optional sequence of right-hand template definitions. When supplied,
         the fit uses separate left- and right-hand template stacks in the
         normal matrix, ``(T_left^T W T_right)^-1 T_left^T W m``.
+    template_inputs_data
+        Optional sequence of data-projection template definitions ``d_3``. When
+        supplied, the fit becomes ``(d_1^T W d_2)^-1 d_3^T W m`` where ``d_3``
+        enters only the right-hand vector. When omitted, ``d_3`` defaults to the
+        left-hand stack ``d_1``.
     target_filter
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
@@ -209,7 +241,8 @@ def fit_foreground_templates(
     Raises
     ------
     ValueError
-        If the left- and right-hand template lists have different lengths.
+        If the left-, right-, or data-projection template lists have different
+        lengths.
     """
 
     processed_target = smooth_and_filter_qu_map(
@@ -241,10 +274,25 @@ def fit_foreground_templates(
             raise ValueError(
                 "template_inputs_rhs must contain the same number of templates as template_inputs."
             )
+    if template_inputs_data is None:
+        processed_templates_data = None
+    else:
+        processed_templates_data, template_names_data = build_template_stack(
+            template_inputs=template_inputs_data,
+            fwhm_out=fwhm_out,
+            default_filter=target_filter,
+            mask=mask,
+            nest=nest,
+        )
+        if len(template_names_data) != len(template_names):
+            raise ValueError(
+                "template_inputs_data must contain the same number of templates as template_inputs."
+            )
     return weighted_template_gls(
         target_qu=processed_target,
         templates_qu=processed_templates,
         templates_rhs_qu=processed_templates_rhs,
+        templates_data_qu=processed_templates_data,
         weight_map=weight_map,
         template_names=template_names,
     )
@@ -259,6 +307,7 @@ def fit_foreground_templates_multi_mask(
     *,
     master_mask: npt.ArrayLike,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
     master_support_mask: npt.ArrayLike | None = None,
     master_support_threshold: float = 0.0,
@@ -294,6 +343,10 @@ def fit_foreground_templates_multi_mask(
     template_inputs_rhs
         Optional sequence of right-hand template definitions for the cross
         normal matrix.
+    template_inputs_data
+        Optional sequence of data-projection template definitions ``d_3``. When
+        supplied, each per-mask solve becomes ``(d_1^T W d_2)^-1 d_3^T W m``.
+        When omitted, ``d_3`` defaults to the left-hand stack ``d_1``.
     target_filter
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
@@ -317,8 +370,8 @@ def fit_foreground_templates_multi_mask(
     ------
     ValueError
         If ``weight_maps`` is empty, a mask or weight has an incompatible
-        shape, the support threshold is not finite, or the left- and right-hand
-        template lists have different lengths.
+        shape, the support threshold is not finite, or the left-, right-, or
+        data-projection template lists have different lengths.
     """
 
     target = as_qu_map(target_qu, name="target_qu")
@@ -338,6 +391,7 @@ def fit_foreground_templates_multi_mask(
         processed_target,
         processed_templates,
         processed_templates_rhs,
+        processed_templates_data,
         template_names,
     ) = _preprocess_under_master_mask(
         target_qu=target,
@@ -347,6 +401,7 @@ def fit_foreground_templates_multi_mask(
         master_mask_map=master_mask_map,
         master_support=master_support,
         template_inputs_rhs=template_inputs_rhs,
+        template_inputs_data=template_inputs_data,
         target_filter=target_filter,
         nest=nest,
     )
@@ -356,6 +411,7 @@ def fit_foreground_templates_multi_mask(
             target_qu=processed_target,
             templates_qu=processed_templates,
             templates_rhs_qu=processed_templates_rhs,
+            templates_data_qu=processed_templates_data,
             weight_map=weight_map,
             template_names=template_names,
         )
@@ -369,6 +425,7 @@ def fit_foreground_templates_multi_mask(
         processed_target_qu=processed_target,
         processed_templates_qu=processed_templates,
         processed_templates_rhs_qu=processed_templates_rhs,
+        processed_templates_data_qu=processed_templates_data,
     )
 
 
@@ -461,9 +518,10 @@ def _preprocess_under_master_mask(
     master_mask_map: FloatArray,
     master_support: FloatArray,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None,
     target_filter: HarmonicFilter | None,
     nest: bool,
-) -> tuple[FloatArray, FloatArray, FloatArray, tuple[str, ...]]:
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, tuple[str, ...]]:
     """Smooth/filter all fit inputs once and apply binary master support.
 
     Parameters
@@ -482,6 +540,9 @@ def _preprocess_under_master_mask(
         Binary support map with shape ``(2, npix)`` applied after filtering.
     template_inputs_rhs
         Optional right-hand template definitions.
+    template_inputs_data
+        Optional data-projection template definitions ``d_3``. When omitted, the
+        returned data stack falls back to the left-hand stack.
     target_filter
         Optional default harmonic filter.
     nest
@@ -490,8 +551,8 @@ def _preprocess_under_master_mask(
     Returns
     -------
     tuple
-        ``(target, templates_lhs, templates_rhs, template_names)`` where the
-        target has shape ``(2, npix)`` and template stacks have shape
+        ``(target, templates_lhs, templates_rhs, templates_data, template_names)``
+        where the target has shape ``(2, npix)`` and template stacks have shape
         ``(n_template, 2, npix)``.
     """
 
@@ -524,16 +585,33 @@ def _preprocess_under_master_mask(
             raise ValueError(
                 "template_inputs_rhs must contain the same number of templates as template_inputs."
             )
+    if template_inputs_data is None:
+        processed_templates_data = processed_templates
+    else:
+        processed_templates_data, template_names_data = build_template_stack(
+            template_inputs=template_inputs_data,
+            fwhm_out=fwhm_out,
+            default_filter=target_filter,
+            mask=master_mask_map,
+            nest=nest,
+        )
+        if len(template_names_data) != len(template_names):
+            raise ValueError(
+                "template_inputs_data must contain the same number of templates as template_inputs."
+            )
 
     # Apply support after the harmonic operation to zero pixels outside the
     # shared analysis region without multiplying by the apodization profile a
-    # second time.
+    # second time. Multiplication is non-mutating, so the data/rhs stacks that
+    # alias the left-hand stack in their default branches are each masked once.
     processed_target = processed_target * master_support
-    processed_templates = processed_templates * master_support[None, :, :]
     processed_templates_rhs = processed_templates_rhs * master_support[None, :, :]
+    processed_templates_data = processed_templates_data * master_support[None, :, :]
+    processed_templates = processed_templates * master_support[None, :, :]
     return (
         processed_target,
         processed_templates,
         processed_templates_rhs,
+        processed_templates_data,
         template_names,
     )

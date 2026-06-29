@@ -7,7 +7,7 @@ This is a small Python package for weighted foreground template fitting of Healp
 There is no configured build step; import the package directly from the repository root.
 
 - `python -m pytest -q`: run the full test suite.
-- `python -m pytest -q tests/test_fg_weighted_template_fit.py::test_name`: run one test.
+- `python -m pytest -q tests/test_fit.py::test_name`: run one test.
 - `python -m pytest -q -m "not skipif"`: run the fast tests that avoid optional Healpix-dependent paths.
 
 Required development dependencies are `numpy` and `pytest`; `healpy` is needed for smoothing/filtering tests, and `tqdm` enables bootstrap progress bars.

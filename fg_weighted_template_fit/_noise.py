@@ -36,6 +36,7 @@ def bootstrap_template_amplitudes(
     *,
     n_mc: int,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
     mask: npt.ArrayLike | None = None,
     nest: bool = False,
@@ -65,6 +66,10 @@ def bootstrap_template_amplitudes(
     template_inputs_rhs
         Optional sequence of right-hand template definitions for the cross
         normal matrix.
+    template_inputs_data
+        Optional sequence of data-projection template definitions ``d_3`` used
+        only in the right-hand vector ``d_3^T W m``. Each Monte Carlo draw
+        realizes its own noise on these maps when covariances are provided.
     target_filter
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
@@ -118,6 +123,7 @@ def bootstrap_template_amplitudes(
         weight_map=weight_map,
         fwhm_out=fwhm_out,
         template_inputs_rhs=template_inputs_rhs,
+        template_inputs_data=template_inputs_data,
         target_filter=target_filter,
         mask=mask,
         nest=nest,
@@ -149,6 +155,7 @@ def bootstrap_template_amplitudes(
                 weight_map=weight_map,
                 fwhm_out=fwhm_out,
                 template_inputs_rhs=template_inputs_rhs,
+                template_inputs_data=template_inputs_data,
                 target_filter=target_filter,
                 mask=mask,
                 nest=nest,
@@ -178,6 +185,7 @@ def bootstrap_template_amplitudes(
                     weight_map=weight_map,
                     fwhm_out=fwhm_out,
                     template_inputs_rhs=template_inputs_rhs,
+                    template_inputs_data=template_inputs_data,
                     target_filter=target_filter,
                     mask=mask,
                     nest=nest,
@@ -218,6 +226,7 @@ def bootstrap_template_amplitudes_multi_mask(
     n_mc: int,
     master_mask: npt.ArrayLike,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None = None,
     target_filter: HarmonicFilter | None = None,
     master_support_mask: npt.ArrayLike | None = None,
     master_support_threshold: float = 0.0,
@@ -258,6 +267,10 @@ def bootstrap_template_amplitudes_multi_mask(
     template_inputs_rhs
         Optional sequence of right-hand template definitions for the cross
         normal matrix.
+    template_inputs_data
+        Optional sequence of data-projection template definitions ``d_3`` used
+        only in the right-hand vector ``d_3^T W m``. Each Monte Carlo draw
+        realizes its own noise on these maps when covariances are provided.
     target_filter
         Optional harmonic filter applied to the target map. Template entries may
         override this with their own ``filter_config`` values.
@@ -306,6 +319,7 @@ def bootstrap_template_amplitudes_multi_mask(
         fwhm_out=fwhm_out,
         master_mask=master_mask,
         template_inputs_rhs=template_inputs_rhs,
+        template_inputs_data=template_inputs_data,
         target_filter=target_filter,
         master_support_mask=master_support_mask,
         master_support_threshold=master_support_threshold,
@@ -342,6 +356,7 @@ def bootstrap_template_amplitudes_multi_mask(
                 fwhm_out=fwhm_out,
                 master_mask=master_mask,
                 template_inputs_rhs=template_inputs_rhs,
+                template_inputs_data=template_inputs_data,
                 target_filter=target_filter,
                 master_support_mask=master_support_mask,
                 master_support_threshold=master_support_threshold,
@@ -373,6 +388,7 @@ def bootstrap_template_amplitudes_multi_mask(
                     fwhm_out=fwhm_out,
                     master_mask=master_mask,
                     template_inputs_rhs=template_inputs_rhs,
+                    template_inputs_data=template_inputs_data,
                     target_filter=target_filter,
                     master_support_mask=master_support_mask,
                     master_support_threshold=master_support_threshold,
@@ -412,6 +428,7 @@ def _fit_bootstrap_draw(
     weight_map: npt.ArrayLike,
     fwhm_out: float,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None,
     target_filter: HarmonicFilter | None,
     mask: npt.ArrayLike | None,
     nest: bool,
@@ -438,6 +455,8 @@ def _fit_bootstrap_draw(
         Common output beam FWHM in radians.
     template_inputs_rhs
         Optional right-hand template definitions for the cross normal matrix.
+    template_inputs_data
+        Optional data-projection template definitions for the right-hand vector.
     target_filter
         Optional harmonic filter applied to the target map and default
         template preprocessing.
@@ -476,6 +495,13 @@ def _fit_bootstrap_draw(
             _realize_noisy_template_input(template_input, rng_obj)
             for template_input in template_inputs_rhs
         )
+    if template_inputs_data is None:
+        noisy_templates_data = None
+    else:
+        noisy_templates_data = tuple(
+            _realize_noisy_template_input(template_input, rng_obj)
+            for template_input in template_inputs_data
+        )
 
     draw_fit = fit_foreground_templates(
         target_qu=noisy_target,
@@ -484,6 +510,7 @@ def _fit_bootstrap_draw(
         weight_map=weight_map,
         fwhm_out=fwhm_out,
         template_inputs_rhs=noisy_templates_rhs,
+        template_inputs_data=noisy_templates_data,
         target_filter=target_filter,
         mask=mask,
         nest=nest,
@@ -502,6 +529,7 @@ def _fit_bootstrap_draw_multi_mask(
     fwhm_out: float,
     master_mask: npt.ArrayLike,
     template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
+    template_inputs_data: Sequence[DifferenceTemplateInput] | None,
     target_filter: HarmonicFilter | None,
     master_support_mask: npt.ArrayLike | None,
     master_support_threshold: float,
@@ -535,6 +563,13 @@ def _fit_bootstrap_draw_multi_mask(
             _realize_noisy_template_input(template_input, rng_obj)
             for template_input in template_inputs_rhs
         )
+    if template_inputs_data is None:
+        noisy_templates_data = None
+    else:
+        noisy_templates_data = tuple(
+            _realize_noisy_template_input(template_input, rng_obj)
+            for template_input in template_inputs_data
+        )
 
     draw_fit = fit_foreground_templates_multi_mask(
         target_qu=noisy_target,
@@ -544,6 +579,7 @@ def _fit_bootstrap_draw_multi_mask(
         fwhm_out=fwhm_out,
         master_mask=master_mask,
         template_inputs_rhs=noisy_templates_rhs,
+        template_inputs_data=noisy_templates_data,
         target_filter=target_filter,
         master_support_mask=master_support_mask,
         master_support_threshold=master_support_threshold,

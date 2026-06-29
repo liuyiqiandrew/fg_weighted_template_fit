@@ -104,6 +104,7 @@ class WeightedFitResult:
     processed_target_qu: FloatArray
     processed_templates_qu: FloatArray
     processed_templates_rhs_qu: FloatArray
+    processed_templates_data_qu: FloatArray
     template_names: tuple[str, ...]
     solver: str
 
@@ -129,6 +130,9 @@ class MultiMaskFitResult:
     processed_templates_rhs_qu
         Master-mask-processed right-hand template stack with shape
         ``(n_template, 2, npix)``.
+    processed_templates_data_qu
+        Master-mask-processed data-projection template stack (the ``d_3`` used in
+        the RHS vector ``d_3^T W m``) with shape ``(n_template, 2, npix)``.
     """
 
     fit_names: tuple[str, ...]
@@ -137,6 +141,7 @@ class MultiMaskFitResult:
     processed_target_qu: FloatArray
     processed_templates_qu: FloatArray
     processed_templates_rhs_qu: FloatArray
+    processed_templates_data_qu: FloatArray
 
 
 @dataclass(frozen=True)
