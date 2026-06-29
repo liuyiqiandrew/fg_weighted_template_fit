@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Sequence
 
 import numpy as np
@@ -7,7 +8,13 @@ import numpy.typing as npt
 
 from ._arrays import as_qu_map, as_template_stack, as_weight_map, weighted_inner_product
 from ._filters import build_template_stack, smooth_and_filter_qu_map
-from ._types import DifferenceTemplateInput, HarmonicFilter, WeightedFitResult
+from ._types import (
+    DifferenceTemplateInput,
+    FloatArray,
+    HarmonicFilter,
+    MultiMaskFitResult,
+    WeightedFitResult,
+)
 
 
 def weighted_template_gls(
@@ -243,8 +250,290 @@ def fit_foreground_templates(
     )
 
 
+def fit_foreground_templates_multi_mask(
+    target_qu: npt.ArrayLike,
+    target_fwhm_in: float,
+    template_inputs: Sequence[DifferenceTemplateInput],
+    weight_maps: Mapping[str, npt.ArrayLike],
+    fwhm_out: float,
+    *,
+    master_mask: npt.ArrayLike,
+    template_inputs_rhs: Sequence[DifferenceTemplateInput] | None = None,
+    target_filter: HarmonicFilter | None = None,
+    master_support_mask: npt.ArrayLike | None = None,
+    master_support_threshold: float = 0.0,
+    nest: bool = False,
+) -> MultiMaskFitResult:
+    """Fit template amplitudes for multiple weights after one preprocessing pass.
+
+    The target and templates are smoothed and filtered once with ``master_mask``
+    as the harmonic preprocessing mask. The processed maps are then restricted
+    to binary master support before each named weight map is used in an
+    independent GLS solve. This keeps harmonic preprocessing homogeneous across
+    all fitted regions while allowing the final weighted solve to use
+    region-specific masks or inverse-variance weights.
+
+    Parameters
+    ----------
+    target_qu
+        Target Q/U map with shape ``(2, npix)`` or ``(npix, 2)``.
+    target_fwhm_in
+        Beam FWHM of the target map in radians.
+    template_inputs
+        Sequence of left-hand template definitions.
+    weight_maps
+        Mapping from fit-region name to diagonal pixel weight map. Each weight
+        accepts the same shapes as ``weighted_template_gls``: scalar,
+        ``(npix,)``, ``(2, npix)``, or ``(npix, 2)``. Insertion order is
+        preserved in the returned ``fit_names``.
+    fwhm_out
+        Common output beam FWHM in radians applied to target and templates.
+    master_mask
+        Binary or apodized mask applied to every input map before harmonic
+        smoothing/filtering.
+    template_inputs_rhs
+        Optional sequence of right-hand template definitions for the cross
+        normal matrix.
+    target_filter
+        Optional harmonic filter applied to the target map. Template entries may
+        override this with their own ``filter_config`` values.
+    master_support_mask
+        Optional explicit post-filter support mask. Finite nonzero samples are
+        kept. When omitted, support is derived from ``master_mask`` and
+        ``master_support_threshold``.
+    master_support_threshold
+        Threshold used for support derived from ``master_mask``. Samples are
+        kept where ``master_mask`` is finite and greater than this value.
+    nest
+        If ``True``, maps are treated as NEST ordered during harmonic
+        transforms.
+
+    Returns
+    -------
+    MultiMaskFitResult
+        Shared processed maps and one weighted fit result per named weight.
+
+    Raises
+    ------
+    ValueError
+        If ``weight_maps`` is empty, a mask or weight has an incompatible
+        shape, the support threshold is not finite, or the left- and right-hand
+        template lists have different lengths.
+    """
+
+    target = as_qu_map(target_qu, name="target_qu")
+    npix = target.shape[1]
+    # Validate all cheap pixel-domain inputs before invoking any Healpix
+    # smoothing/filtering, which is the expensive part of the workflow.
+    weights_by_name = _validate_weight_maps(weight_maps, npix=npix)
+    master_mask_map = as_weight_map(master_mask, npix=npix, name="master_mask")
+    master_support = _build_master_support(
+        master_mask_map=master_mask_map,
+        master_support_mask=master_support_mask,
+        master_support_threshold=master_support_threshold,
+        npix=npix,
+    )
+
+    (
+        processed_target,
+        processed_templates,
+        processed_templates_rhs,
+        template_names,
+    ) = _preprocess_under_master_mask(
+        target_qu=target,
+        target_fwhm_in=target_fwhm_in,
+        template_inputs=template_inputs,
+        fwhm_out=fwhm_out,
+        master_mask_map=master_mask_map,
+        master_support=master_support,
+        template_inputs_rhs=template_inputs_rhs,
+        target_filter=target_filter,
+        nest=nest,
+    )
+
+    fit_results: dict[str, WeightedFitResult] = {
+        fit_name: weighted_template_gls(
+            target_qu=processed_target,
+            templates_qu=processed_templates,
+            templates_rhs_qu=processed_templates_rhs,
+            weight_map=weight_map,
+            template_names=template_names,
+        )
+        for fit_name, weight_map in weights_by_name.items()
+    }
+
+    return MultiMaskFitResult(
+        fit_names=tuple(weights_by_name),
+        fit_results=fit_results,
+        template_names=template_names,
+        processed_target_qu=processed_target,
+        processed_templates_qu=processed_templates,
+        processed_templates_rhs_qu=processed_templates_rhs,
+    )
+
+
 def _as_binary_fit_mask(mask: npt.ArrayLike, *, npix: int) -> npt.NDArray[np.float64]:
     """Convert a general mask definition into binary support for the GLS step."""
 
     mask_map = as_weight_map(mask, npix=npix, name="mask")
     return np.where(np.isfinite(mask_map) & (mask_map != 0.0), 1.0, 0.0)
+
+
+def _validate_weight_maps(
+    weight_maps: Mapping[str, npt.ArrayLike],
+    *,
+    npix: int,
+) -> dict[str, FloatArray]:
+    """Normalize named fit weights before any harmonic preprocessing.
+
+    Parameters
+    ----------
+    weight_maps
+        Mapping from fit-region name to scalar, pixel, or Q/U weight map.
+    npix
+        Expected number of Healpix pixels.
+
+    Returns
+    -------
+    dict of str to ndarray
+        Weight maps normalized to shape ``(2, npix)`` in input order.
+
+    Raises
+    ------
+    ValueError
+        If the mapping is empty, a key is not a non-empty string, or any weight
+        map has an unsupported shape.
+    """
+
+    if not weight_maps:
+        raise ValueError("weight_maps must contain at least one named weight map.")
+
+    validated: dict[str, FloatArray] = {}
+    for fit_name, weight_map in weight_maps.items():
+        if not isinstance(fit_name, str) or fit_name == "":
+            raise ValueError("weight_maps keys must be non-empty strings.")
+        validated[fit_name] = as_weight_map(
+            weight_map,
+            npix=npix,
+            name=f"weight_maps[{fit_name!r}]",
+        )
+    return validated
+
+
+def _build_master_support(
+    *,
+    master_mask_map: FloatArray,
+    master_support_mask: npt.ArrayLike | None,
+    master_support_threshold: float,
+    npix: int,
+) -> FloatArray:
+    """Build binary post-filter support from an explicit or thresholded mask.
+
+    The returned support has shape ``(2, npix)`` so it can broadcast directly
+    over Q/U maps and stacked template arrays.
+    """
+
+    threshold = float(master_support_threshold)
+    if not np.isfinite(threshold):
+        raise ValueError("master_support_threshold must be finite.")
+
+    if master_support_mask is None:
+        # The master mask controls the harmonic edge treatment. Post-filtering
+        # only enforces support so apodized mask values are not applied twice.
+        support_source = master_mask_map
+        keep = np.isfinite(support_source) & (support_source > threshold)
+    else:
+        support_source = as_weight_map(
+            master_support_mask,
+            npix=npix,
+            name="master_support_mask",
+        )
+        keep = np.isfinite(support_source) & (support_source != 0.0)
+    return keep.astype(np.float64)
+
+
+def _preprocess_under_master_mask(
+    *,
+    target_qu: FloatArray,
+    target_fwhm_in: float,
+    template_inputs: Sequence[DifferenceTemplateInput],
+    fwhm_out: float,
+    master_mask_map: FloatArray,
+    master_support: FloatArray,
+    template_inputs_rhs: Sequence[DifferenceTemplateInput] | None,
+    target_filter: HarmonicFilter | None,
+    nest: bool,
+) -> tuple[FloatArray, FloatArray, FloatArray, tuple[str, ...]]:
+    """Smooth/filter all fit inputs once and apply binary master support.
+
+    Parameters
+    ----------
+    target_qu
+        Target Q/U map already normalized to shape ``(2, npix)``.
+    target_fwhm_in
+        Beam FWHM of ``target_qu`` in radians.
+    template_inputs
+        Left-hand template definitions.
+    fwhm_out
+        Common output beam FWHM in radians.
+    master_mask_map
+        Harmonic preprocessing mask normalized to shape ``(2, npix)``.
+    master_support
+        Binary support map with shape ``(2, npix)`` applied after filtering.
+    template_inputs_rhs
+        Optional right-hand template definitions.
+    target_filter
+        Optional default harmonic filter.
+    nest
+        Whether input maps are in NEST ordering.
+
+    Returns
+    -------
+    tuple
+        ``(target, templates_lhs, templates_rhs, template_names)`` where the
+        target has shape ``(2, npix)`` and template stacks have shape
+        ``(n_template, 2, npix)``.
+    """
+
+    processed_target = smooth_and_filter_qu_map(
+        target_qu,
+        fwhm_in=target_fwhm_in,
+        fwhm_out=fwhm_out,
+        filter_config=target_filter,
+        mask=master_mask_map,
+        nest=nest,
+    )
+    processed_templates, template_names = build_template_stack(
+        template_inputs=template_inputs,
+        fwhm_out=fwhm_out,
+        default_filter=target_filter,
+        mask=master_mask_map,
+        nest=nest,
+    )
+    if template_inputs_rhs is None:
+        processed_templates_rhs = processed_templates
+    else:
+        processed_templates_rhs, template_names_rhs = build_template_stack(
+            template_inputs=template_inputs_rhs,
+            fwhm_out=fwhm_out,
+            default_filter=target_filter,
+            mask=master_mask_map,
+            nest=nest,
+        )
+        if len(template_names_rhs) != len(template_names):
+            raise ValueError(
+                "template_inputs_rhs must contain the same number of templates as template_inputs."
+            )
+
+    # Apply support after the harmonic operation to zero pixels outside the
+    # shared analysis region without multiplying by the apodization profile a
+    # second time.
+    processed_target = processed_target * master_support
+    processed_templates = processed_templates * master_support[None, :, :]
+    processed_templates_rhs = processed_templates_rhs * master_support[None, :, :]
+    return (
+        processed_target,
+        processed_templates,
+        processed_templates_rhs,
+        template_names,
+    )
