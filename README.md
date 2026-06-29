@@ -49,9 +49,11 @@ normal-matrix factors by supplying a third template stack `d_3`
 a_hat = (d_1^T W d_2)^(-1) d_3^T W m
 ```
 
-where `d_3` enters only the right-hand vector and not the normal matrix. When
-`d_3` is omitted it defaults to `d_1`, recovering the forms above; supplying only
-`template_inputs` makes all three stacks equal.
+where finite `d_3` samples enter only the right-hand vector and not the normal
+matrix. When `d_3` is omitted it defaults to `d_1`, recovering the forms above;
+supplying only `template_inputs` makes all three stacks equal. Non-finite samples
+in any of `d_1`, `d_2`, `d_3`, `m`, or `W` are removed from the shared fit
+support.
 
 This is still not the fully optimal generalized least-squares estimator you
 would get from a full inverse covariance matrix, but it is often a useful fast
@@ -64,7 +66,9 @@ you want a swift amplitude estimate.
 fg_weighted_template_fit/
 ├── README.md
 ├── docs/
-│   └── api.md
+│   ├── api.md
+│   ├── multi_mask.md
+│   └── parallel_bootstrap.md
 ├── fg_weighted_template_fit/
 │   ├── __init__.py
 │   ├── _arrays.py
@@ -95,6 +99,8 @@ Module responsibilities:
 - Public helpers for reusable explicit `ell` and `m` filter arrays
 - Smooth `ell` and `m` cutoffs with `C1` or `C2` apodized edges
 - Weighted diagonal GLS-like solve for template amplitudes
+- Independent left, right, and data-projection template stacks for cross fits
+- Multi-mask fits with shared harmonic preprocessing and per-region weights
 - Bootstrap uncertainty estimation from per-pixel `QQ`, `UU`, `QU` covariance
 - Storage of the recovered amplitude from every Monte Carlo realization
 
@@ -148,22 +154,22 @@ dust_split_b = ftf.DifferenceTemplateInput(
 )
 
 sync_split_a = ftf.DifferenceTemplateInput(
-    map_a_qu=wm23_qu,
-    map_b_qu=ka23_qu,
-    fwhm_in_a=fwhm_w_rad,
-    fwhm_in_b=fwhm_ka_rad,
-    noise_cov_a=wm23_cov,
-    noise_cov_b=ka23_cov,
+    map_a_qu=wmap_k_qu,
+    map_b_qu=wmap_ka_qu,
+    fwhm_in_a=fwhm_wmap_k_rad,
+    fwhm_in_b=fwhm_wmap_ka_rad,
+    noise_cov_a=wmap_k_cov,
+    noise_cov_b=wmap_ka_cov,
     name="sync",
 )
 
 sync_split_b = ftf.DifferenceTemplateInput(
-    map_a_qu=wm23_split_b_qu,
-    map_b_qu=ka23_split_b_qu,
-    fwhm_in_a=fwhm_w_rad,
-    fwhm_in_b=fwhm_ka_rad,
-    noise_cov_a=wm23_split_b_cov,
-    noise_cov_b=ka23_split_b_cov,
+    map_a_qu=wmap_k_split_b_qu,
+    map_b_qu=wmap_ka_split_b_qu,
+    fwhm_in_a=fwhm_wmap_k_rad,
+    fwhm_in_b=fwhm_wmap_ka_rad,
+    noise_cov_a=wmap_k_split_b_cov,
+    noise_cov_b=wmap_ka_split_b_cov,
     name="sync",
 )
 
@@ -374,6 +380,8 @@ The current test suite covers:
 - recovery of known template amplitudes
 - Q/U noise realization from requested covariance
 - Monte Carlo sample storage and nonzero uncertainty
+- cross-template and data-projection weighted solves
+- multi-mask fitting under shared preprocessing
 - public `ell`/`m` filter helper construction
 - smoothing and `m`-filter integration
 - explicit filter-array integration through `smooth_and_filter_qu_map`

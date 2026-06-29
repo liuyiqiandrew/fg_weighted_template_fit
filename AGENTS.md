@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This is a small Python package for weighted foreground template fitting of Healpix Q/U maps. Source code lives in `fg_weighted_template_fit/`, with public exports collected in `__init__.py`. Core modules are split by responsibility: `_types.py` for dataclasses, `_arrays.py` for shape and RNG helpers, `_filters.py` for Healpix smoothing and harmonic filters, `_fit.py` for weighted solves, and `_noise.py` for Monte Carlo uncertainty. Tests live in `tests/`, and API notes live in `docs/api.md`.
+This is a small Python package for weighted foreground template fitting of Healpix Q/U maps. Source code lives in `fg_weighted_template_fit/`, with public exports collected in `__init__.py`. Core modules are split by responsibility: `_types.py` for dataclasses, `_arrays.py` for shape and RNG helpers, `_filters.py` for Healpix smoothing and harmonic filters, `_fit.py` for weighted single-mask and multi-mask solves, and `_noise.py` for Monte Carlo uncertainty. Tests live in `tests/`, and documentation lives in `docs/api.md`, `docs/multi_mask.md`, and `docs/parallel_bootstrap.md`.
 
 ## Build, Test, and Development Commands
 There is no configured build step; import the package directly from the repository root.
@@ -13,7 +13,7 @@ There is no configured build step; import the package directly from the reposito
 Required development dependencies are `numpy` and `pytest`; `healpy` is needed for smoothing/filtering tests, and `tqdm` enables bootstrap progress bars.
 
 ## Coding Style & Naming Conventions
-Use Python 3 style with `from __future__ import annotations`, type hints, and NumPy arrays coerced to `float64` where numerical routines expect them. Keep modules flat and focused. Use snake_case for functions, variables, and test names; use PascalCase for dataclasses such as `HarmonicFilter`. Prefer concise docstrings that document shapes, units, and failure modes.
+Use Python 3 style with `from __future__ import annotations`, type hints, and NumPy arrays coerced to `float64` where numerical routines expect them. Keep modules flat and focused. Use snake_case for functions, variables, and test names; use PascalCase for dataclasses such as `HarmonicFilter`. Prefer concise docstrings that document shapes, units, mask/support behavior, and failure modes.
 
 ## Testing Guidelines
 Tests use `pytest` and `numpy.testing`. Name tests `test_<behavior>` and keep fixtures local unless reuse becomes necessary. Cover numerical behavior with deterministic arrays or seeded RNGs. Mark Healpy-dependent tests with `@pytest.mark.skipif(filters_mod.hp is None, reason="healpy not installed")`.

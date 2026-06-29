@@ -65,6 +65,7 @@ Fields:
 - `processed_target_qu`
 - `processed_templates_qu`
 - `processed_templates_rhs_qu`
+- `processed_templates_data_qu`
 - `template_names`
 - `solver`
 
@@ -92,6 +93,7 @@ Fields:
 - `processed_target_qu`
 - `processed_templates_qu`
 - `processed_templates_rhs_qu`
+- `processed_templates_data_qu`
 
 ### `MultiMaskBootstrapResult`
 
@@ -254,6 +256,8 @@ Important behavior:
   same-template normal matrix
 - `templates_data_qu` is the data-projection stack `d_3` used only in the
   right-hand vector `d_3^T W m`; if omitted, it defaults to `d_1`
+- non-finite values in any stack, including `d_3`, remove that Q/U sample from
+  the shared support used by both the normal matrix and right-hand vector
 - if the normal matrix is singular, the routine falls back to a pseudoinverse
 
 ### `fit_foreground_templates`
@@ -362,6 +366,9 @@ Important behavior:
   and override the threshold-derived support
 - each named fit calls `weighted_template_gls` with its own `weight_map` and no
   GLS `mask`, so fitting masks act as weights only
+- `template_inputs_data` follows the same ordering and length requirements as
+  `template_inputs`; when omitted, the data-projection stack defaults to the
+  left-hand stack
 
 ### `realize_qu_noise`
 

@@ -178,11 +178,13 @@ available the same way as in the single-mask path.
 To decouple the data-projection vector from the normal-matrix factors, pass a
 third stack through `template_inputs_data`. The per-region solve then becomes
 `(d_1^T W d_2)^-1 d_3^T W m`, where `d_1 = template_inputs`,
-`d_2 = template_inputs_rhs`, and `d_3 = template_inputs_data` enters only the
-right-hand vector. When `template_inputs_data` is omitted, `d_3` defaults to the
-left-hand stack `d_1`, reproducing the existing behavior. The same keyword is
-accepted by `bootstrap_template_amplitudes_multi_mask`, which realizes an
-independent noise draw on the `d_3` maps when they carry covariances.
+`d_2 = template_inputs_rhs`, and finite `d_3 = template_inputs_data` samples
+enter only the right-hand vector. When `template_inputs_data` is omitted, `d_3`
+defaults to the left-hand stack `d_1`, reproducing the existing behavior. The
+same keyword is accepted by `bootstrap_template_amplitudes_multi_mask`, which
+realizes an independent noise draw on the `d_3` maps when they carry
+covariances. Non-finite samples in any template stack are removed from the shared
+fit support before the per-region solves.
 
 ## Bootstrap Example
 
@@ -308,7 +310,7 @@ from region to region.
 
 - target-map noise from `target_noise_cov`,
 - template-map noise from `noise_cov_a` / `noise_cov_b` on each
-  `DifferenceTemplateInput`,
+  `DifferenceTemplateInput` in the left, right-hand, and data-projection stacks,
 - the effect of rebuilding the templates (smoothing, filtering, masking)
   after each noise draw.
 
