@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import fg_weighted_template_fit as ftf
+import fg_weighted_template_fit._filters as filters_mod
 import fg_weighted_template_fit._noise as noise_mod
 
 
@@ -173,6 +174,56 @@ def test_fit_and_bootstrap_store_mc_amplitudes() -> None:
     assert bootstrap.amplitude_samples.shape == (8, 2)
     assert np.all(np.isfinite(bootstrap.amplitude_samples))
     assert np.all(bootstrap.amplitude_std > 0.0)
+
+
+@pytest.mark.skipif(filters_mod.hp is None, reason="healpy not installed")
+def test_bootstrap_template_amplitudes_runs_real_custom_beam_pipeline() -> None:
+    """Run reference and Monte Carlo fits through real custom-beam transforms."""
+
+    nside = 1
+    npix = 12 * nside**2
+    amplitude = 1.4
+    rng = np.random.default_rng(811)
+    template_map = rng.standard_normal((2, npix))
+    zero_covariance = np.zeros((3, npix), dtype=np.float64)
+    beam_window = np.array([1.0, 0.95, 0.85])
+    filter_config = ftf.HarmonicFilter(lmax=2, iter=5)
+    template_input = ftf.DifferenceTemplateInput(
+        map_a_qu=template_map,
+        map_b_qu=np.zeros_like(template_map),
+        fwhm_in_a=np.nan,
+        fwhm_in_b=0.0,
+        noise_cov_a=zero_covariance,
+        noise_cov_b=zero_covariance,
+        filter_config=filter_config,
+        name="dust",
+        beam_window_a=beam_window,
+    )
+
+    result = ftf.bootstrap_template_amplitudes(
+        target_qu=amplitude * template_map,
+        target_noise_cov=zero_covariance,
+        target_fwhm_in=np.nan,
+        target_beam_window=beam_window,
+        template_inputs=(template_input,),
+        weight_map=np.ones(npix),
+        fwhm_out=0.0,
+        n_mc=2,
+        target_filter=filter_config,
+        rng=123,
+    )
+
+    np.testing.assert_allclose(
+        result.reference_fit.amplitudes,
+        [amplitude],
+        atol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        result.amplitude_samples,
+        amplitude,
+        atol=1.0e-10,
+    )
+    np.testing.assert_allclose(result.amplitude_std, 0.0, atol=1.0e-12)
 
 
 def test_bootstrap_template_amplitudes_multi_mask_uses_shared_draws() -> None:

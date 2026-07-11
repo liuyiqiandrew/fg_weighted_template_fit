@@ -15,11 +15,12 @@ class HarmonicFilter:
     Parameters
     ----------
     ell_filter
-        Optional multiplicative transfer function indexed by multipole ``ell``.
-        Arrays from ``build_ell_filter`` can be passed here directly.
+        Optional real, finite 1D transfer indexed by multipole ``ell``. It must
+        cover ``lmax``. Arrays from ``build_ell_filter`` can be passed directly.
     m_filter
-        Optional multiplicative transfer function indexed by azimuthal mode
-        ``m``. Arrays from ``build_m_filter`` can be passed here directly.
+        Optional real, finite 1D transfer indexed by azimuthal mode ``m``. It
+        must cover ``lmax``. Arrays from ``build_m_filter`` can be passed
+        directly.
     ell_cutoff
         Optional high-pass cutoff in multipole. The response is zero below
         ``ell_cutoff - ell_halfwidth`` and unity above
@@ -37,9 +38,9 @@ class HarmonicFilter:
         NaMaster convention for a smooth edge on a normalized transition
         coordinate.
     lmax
-        Maximum multipole used for the spherical-harmonic transform. If not
-        provided, the implementation uses ``3 * nside - 1`` or the shortest
-        supplied filter length minus one, whichever is smaller.
+        Shared maximum multipole used for the spherical-harmonic transform. If
+        omitted, the implementation uses ``3 * nside - 1``. Every explicit
+        filter and custom beam window must cover the selected support.
     iter
         Number of map-to-alm Jacobi iterations used by ``healpy.map2alm``.
     """
@@ -81,11 +82,13 @@ class DifferenceTemplateInput:
     name
         Human-readable name for the template.
     beam_window_a
-        Optional input beam transfer function ``B_ell`` for ``map_a_qu``. When
-        supplied, this replaces the Gaussian beam implied by ``fwhm_in_a``.
+        Optional real, finite, strictly positive 1D transfer ``B_ell`` for a
+        scalar-valued, axisymmetric input beam on ``map_a_qu``. It applies
+        equally to E and B and must cover the shared ``lmax``. When supplied,
+        it replaces the Gaussian beam implied by ``fwhm_in_a``.
     beam_window_b
-        Optional input beam transfer function ``B_ell`` for ``map_b_qu``. When
-        supplied, this replaces the Gaussian beam implied by ``fwhm_in_b``.
+        Optional scalar input beam ``B_ell`` for ``map_b_qu`` with the same
+        requirements as ``beam_window_a``.
     """
 
     map_a_qu: npt.ArrayLike
